@@ -4,11 +4,13 @@ from nltk.data import find
 import spacy
 from sentence_transformers import SentenceTransformer
 from django.conf import settings
+from keybert import KeyBERT
 class NLPManager:
     _instance = None
     _nlp = None
     _embedding_model = None
     _resources_checked = False
+    _keybert_model = None
     
     @classmethod
     def get_instance(cls):
@@ -46,6 +48,7 @@ class NLPManager:
         
         print("Loading sentence transformer model...")
         self._embedding_model = SentenceTransformer(settings.EMBEDDING_MODEL_NAME)
+        self._keybert_model = KeyBERT(model=settings.EMBEDDING_MODEL_NAME)
     
     @property
     def nlp(self):
@@ -56,3 +59,9 @@ class NLPManager:
     def embedding_model(self):
         self.ensure_resources()
         return self._embedding_model
+    
+    @property
+    def kw_model(self):
+        self.ensure_resources()
+        return self._keybert_model
+    
