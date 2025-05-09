@@ -1,8 +1,8 @@
 from django.db import models
-from django.contrib.auth.models import User
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 import uuid
+
 SENDER_CHOICES = [
         ("user", "User"),
         ("bot", "Bot"),
@@ -12,7 +12,13 @@ SENDER_CHOICES = [
 class Chatbot(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chatbots')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='chatbots')
+    primary_color= models.CharField(max_length=7, default="#000000")
+    logo = models.ImageField(upload_to='chatbot_logos/', null=True, blank=True)
+    text_color = models.CharField(max_length=7, default="#000000")
+    welcome_message = models.TextField(null=True, blank=True)
+    welcome_popup = models.TextField(null=True, blank=True)
+    chat_input = models.TextField(null=True, blank=True)
     
     def __str__(self):
         return self.name
@@ -37,6 +43,8 @@ class ChatbotDocument(models.Model):
     def __str__(self):
         return f"Document: {self.original_filename}"
     
+
+    
 class DocumentEmbedding(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     document = models.OneToOneField(ChatbotDocument, on_delete=models.CASCADE, related_name='embedding')
@@ -59,3 +67,7 @@ class Message(models.Model):
     original_text = models.TextField(null=True, blank=True)  # New field to store original text
     processed_text_use = models.TextField(null=True, blank=True) 
     timestamp = models.DateTimeField(auto_now_add=True)
+    sentiment = models.CharField(max_length=50, null=True, blank=True)
+    overall_sentiment = models.JSONField(null=True, blank=True) 
+    ner_entities = ArrayField(models.CharField(max_length=255), null=True, blank=True)
+    intent = ArrayField(models.CharField(max_length=255), null=True, blank=True)  # New field to store intent classification result

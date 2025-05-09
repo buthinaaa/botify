@@ -9,3 +9,4 @@ class RegisterAPIView(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors)
+

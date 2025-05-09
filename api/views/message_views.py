@@ -1,19 +1,11 @@
 import uuid
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.viewsets import ModelViewSet
-from api.models.chatbot_models import ChatSession, Chatbot, ChatbotDocument
-from api.utilities.message_processing import preprocess_message
-from api.models.chatbot_models import Message
+from api.models.chatbot_models import Chatbot, ChatbotData
 from api.serializers.message_serializer import MessageSerializer
-from django.utils import timezone
-from datetime import timedelta
-from rest_framework.permissions import AllowAny
-from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 from rest_framework import status
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
-from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, OpenApiExample
+from rest_framework.exceptions import NotFound
 
 class GenerateResponse(APIView):
     @extend_schema(
@@ -24,7 +16,7 @@ class GenerateResponse(APIView):
             OpenApiExample(
                 'User message example',
                 value={
-                    'original_text': 'Hello, how can you help me?',
+                    'original_text': 'Hello, can you help me?',
                     'chatbot_id': 'uuid-string-here',
                     'session_id': 'uuid-string-here'
                 },
@@ -34,11 +26,27 @@ class GenerateResponse(APIView):
     )
     def post(self, request):
         request.data['sender'] = 'user'
-        serializer = MessageSerializer(data=request.data)
+        try:
+            # Get the chatbot using the chatbot_id
+            chatbot = Chatbot.objects.get(id=request.data['chatbot_id'])
+        except Chatbot.DoesNotExist:
+            raise NotFound(f"Chatbot with id {request.data['chatbot_id']} does not exist.")
+        
+        try:
+            chatbot_data = ChatbotData.objects.get(chatbot=chatbot)
+        except ChatbotData.DoesNotExist:
+            raise NotFound(f"ChatbotData with id {request.data['chatbot_id']} does not exist.")
+        # Get the doc_labels (intent labels from documents)
+        doc_labels = chatbot_data.intent_labels
+        serializer = MessageSerializer(data=request.data,context={'doc_labels': doc_labels})
         if serializer.is_valid():
             user_message = serializer.save()
             original_text = user_message.original_text
             processed_text_use = user_message.processed_text_use
+            ner_entities = user_message.ner_entities
+            sentiment = user_message.sentiment
+            overall_sentiment = user_message.overall_sentiment
+            intent = user_message.intent
             #TODO: Call the chatbot model to get the response using the processed_text_use (Do all the processing you need, like NER, etc.)
 
             chatbot_message = {
