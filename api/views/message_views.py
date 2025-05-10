@@ -1,4 +1,3 @@
-import uuid
 from rest_framework.response import Response
 from api.models.chatbot_models import Chatbot, ChatbotData
 from api.serializers.message_serializer import MessageSerializer

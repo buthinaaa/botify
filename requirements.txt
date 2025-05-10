@@ -112,3 +112,4 @@ wrapt==1.17.2
 pyspellchecker
 emoji
 gunicorn==21.2.0
+huggingface_hub[hf_xet]
