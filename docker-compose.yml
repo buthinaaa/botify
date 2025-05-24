@@ -1,9 +1,9 @@
 services:
   api:
     build: .
-    command: gunicorn config.wsgi:application --bind 0.0.0.0:8002 --workers 1
+    command: daphne -b 0.0.0.0 -p 8002 config.asgi:application
     volumes:
-      - /c/Users/DELL/.cache/huggingface:/root/.cache/huggingface
+      - C:/Users/Bassam Publicis/.cache/huggingface:/root/.cache/huggingface
       - .:/app
     ports:
       - "8002:8002"

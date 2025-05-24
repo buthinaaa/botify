@@ -12,10 +12,19 @@ import numpy as np
 from rest_framework.response import Response
 
 class ChatbotSerializer(serializers.ModelSerializer):
+    def validate_file_type(file):
+        allowed_extensions = ['.pdf', '.txt', '.docx']
+        ext = os.path.splitext(file.name)[1].lower()
+        if ext not in allowed_extensions:
+            raise serializers.ValidationError(f'File type not allowed. Only PDF, TXT, and DOCX files are accepted.')
+
     documents = serializers.ListField(
-        child=serializers.FileField(max_length=10 * 1024 * 1024, 
-                                   allow_empty_file=False, 
-                                   use_url=True),
+        child=serializers.FileField(
+            max_length=10 * 1024 * 1024, 
+            allow_empty_file=False,
+            use_url=True,
+            validators=[validate_file_type]
+        ),
         write_only=True,
         required=True
     )
@@ -43,7 +52,7 @@ class ChatbotSerializer(serializers.ModelSerializer):
                 elif path.endswith(".docx"):
                     text = extract_text_from_docx(path)
                 else:
-                    raise ValueError(f"Unsupported file type: {path}")
+                    raise serializers.ValidationError(f"Unsupported file type: {path}")
                 
                 chunks = semantic_window_chunking(text)
                 chunk_counts.append(len(chunks))

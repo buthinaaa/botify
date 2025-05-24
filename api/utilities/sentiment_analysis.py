@@ -2,22 +2,13 @@ import requests
 import time
 # For processing sentiment API response
 from collections import Counter
-
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
 import torch.nn.functional as F
-
-# Load locally once
-tokenizer_sentiment = AutoTokenizer.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment-latest")
-model = AutoModelForSequenceClassification.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment-latest")
-model.eval()  # Set model to evaluation mode
-
-import time
-import requests
+from api.services.nlp_manager import NLPManager
 
 def get_sentiment_from_api(text, max_retries=5, backoff_factor=1.0):
     """
-    Uses the locally loaded sentiment model to classify the input text.
+    Uses the centralized sentiment model from NLPManager to classify the input text.
 
     Parameters:
     text (str): The input text.
@@ -26,8 +17,13 @@ def get_sentiment_from_api(text, max_retries=5, backoff_factor=1.0):
     tuple: (label, score)
     """
     try:
+        # Get model and tokenizer from NLPManager
+        nlp_manager = NLPManager.get_instance()
+        tokenizer = nlp_manager.sentiment_tokenizer
+        model = nlp_manager.sentiment_model
+        
         # Tokenize and predict
-        inputs = tokenizer_sentiment(text, return_tensors="pt", truncation=True)
+        inputs = tokenizer(text, return_tensors="pt", truncation=True)
         with torch.no_grad():
             outputs = model(**inputs)
             logits = outputs.logits
@@ -41,6 +37,7 @@ def get_sentiment_from_api(text, max_retries=5, backoff_factor=1.0):
     except Exception as e:
         print(f"[Error] Sentiment prediction failed: {e}")
         return None, None
+
 def analyze_sentiment(preprocessed_message, context=None, score_threshold=0.5, fallback_threshold=0.3):
     """
     Analyzes sentiment using the original text.

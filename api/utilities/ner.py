@@ -1,18 +1,8 @@
-from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
-
-# Load tokenizer and model locally
-ner_tokenizer = AutoTokenizer.from_pretrained("dslim/bert-base-NER-uncased")
-ner_model = AutoModelForTokenClassification.from_pretrained("dslim/bert-base-NER-uncased")
-
-# Create NER pipeline
-ner_pipeline = pipeline("ner", model=ner_model, tokenizer=ner_tokenizer, aggregation_strategy="simple")
-
-import requests
-import time
+from api.services.nlp_manager import NLPManager
 
 def call_ner_api(text, max_retries=5, backoff_factor=1.0):
     """
-    Runs NER using the locally loaded model (no API calls).
+    Runs NER using the centralized model from NLPManager.
 
     Parameters:
     text (str): Input text for named entity recognition.
@@ -21,7 +11,8 @@ def call_ner_api(text, max_retries=5, backoff_factor=1.0):
     list: List of extracted entities with 'entity_group', 'word', 'score', etc.
     """
     try:
-        return ner_pipeline(text)
+        nlp_manager = NLPManager.get_instance()
+        return nlp_manager.ner_pipeline(text)
     except Exception as e:
         print(f"[NER Error] Local NER processing failed: {e}")
         return []

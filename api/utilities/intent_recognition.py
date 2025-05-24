@@ -1,14 +1,10 @@
-from transformers import pipeline
-
-# Load the zero-shot classification pipeline
-zero_shot_classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
-
+from api.services.nlp_manager import NLPManager
 import time
 import requests
 
 def intent_recognition_api(message, candidate_labels, multi_label=True, max_retries=5, backoff_factor=1.0):
     """
-    Uses local model for zero-shot intent recognition.
+    Uses centralized model from NLPManager for zero-shot intent recognition.
 
     Parameters:
         message (str): The user's message.
@@ -19,12 +15,13 @@ def intent_recognition_api(message, candidate_labels, multi_label=True, max_retr
         List of tuples: [(label, score), ...] sorted by confidence.
     """
     try:
-        result = zero_shot_classifier(message, candidate_labels, multi_label=multi_label)
+        nlp_manager = NLPManager.get_instance()
+        result = nlp_manager.zero_shot_classifier(message, candidate_labels, multi_label=multi_label)
         labels = result.get("labels", [])
         scores = result.get("scores", [])
         return sorted(zip(labels, scores), key=lambda x: x[1], reverse=True)
     except Exception as e:
-        print(f"[Intent Error] Local intent recognition failed: {e}")
+        print(f"[Intent Error] Intent recognition failed: {e}")
         return []
     
 def classify_question_or_not(message, threshold=0.4):
