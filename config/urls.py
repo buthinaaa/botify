@@ -18,6 +18,7 @@ from django.contrib import admin
 from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import include, path
+from api.views.auth_views import CustomTokenObtainPairView
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
@@ -38,6 +39,6 @@ urlpatterns = [
     
     path('admin/', admin.site.urls),
     path('api/', include('api.urls')),
-    path('api/auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/login/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
