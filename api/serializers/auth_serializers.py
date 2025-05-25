@@ -28,6 +28,10 @@ class RegisterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Email already exists")
         return value
 
+    def validate_password(self, value):
+        validate_password(value)
+        return value
+
     def validate_password1(self, value):
         if value != self.initial_data['password']:
             raise serializers.ValidationError("Passwords do not match")
