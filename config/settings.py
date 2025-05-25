@@ -47,7 +47,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'corsheaders',
     'channels',
-    "phonenumber_field",
+    'phonenumber_field',
 ]
 
 ASGI_APPLICATION = 'config.asgi.application'

@@ -48,7 +48,9 @@ def classify_question_or_not(message, threshold=0.4):
 
     # Filter labels based on the threshold
     matched_labels = max(predictions, key=lambda x: x[1])[0]
-
+    if not matched_labels and predictions:
+        best_label = max(predictions, key=lambda x: x[1])[0]
+        matched_labels = [best_label]
     # Check if the message is a question based on the labels
     is_question = "support-question" in matched_labels
 
@@ -93,14 +95,16 @@ def handle_fallbacks(is_question, matched_labels, topic_labels):
             "reason": str or None (why fallback was triggered)
         }
     """
+    if isinstance(matched_labels, str):
+        matched_labels = [matched_labels]
+    
     # Handle out-of-scope or casual chitchat
-    if "out-of-scope" in matched_labels or "chitchat" in matched_labels:
+    if any(label in matched_labels for label in ["out-of-scope", "chitchat"]):
         return {
             "status": "fallback",
             "message": "I'm here to help with support-related questions. Please let me know how I can assist you 😊",
             "reason": "out-of-scope-or-chitchat"
         }
-
 
     # Everything looks good, proceed
     return {
@@ -108,6 +112,22 @@ def handle_fallbacks(is_question, matched_labels, topic_labels):
         "message": None,
         "reason": None
     }
+
+    # Handle out-of-scope or casual chitchat
+    # if "out-of-scope" in matched_labels or "chitchat" in matched_labels:
+    #     return {
+    #         "status": "fallback",
+    #         "message": "I'm here to help with support-related questions. Please let me know how I can assist you 😊",
+    #         "reason": "out-of-scope-or-chitchat"
+    #     }
+
+
+    # # Everything looks good, proceed
+    # return {
+    #     "status": "ok",
+    #     "message": None,
+    #     "reason": None
+    # }
 
 def detect_intent(message, doc_labels, threshold=0.4, max_fallback=3):
     """
@@ -152,7 +172,7 @@ def detect_intent(message, doc_labels, threshold=0.4, max_fallback=3):
     }
 
     # Step 3: Early check for out-of-scope
-    if "out-of-scope" in matched_labels:
+    if any("out-of-scope" in label for label in matched_labels):
         result['safety_flags']['out_of_scope'] = True
 
     # Step 4: Classify topic intent if it's a question

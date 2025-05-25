@@ -26,26 +26,31 @@ class MessageSerializer(serializers.ModelSerializer):
         message = Message(session=session, chatbot=chatbot, **validated_data)
 
         if validated_data.get('sender') == 'user':
-
             preprocessed_data = preprocess_message(validated_data.get('original_text'))
             message.processed_text_use = preprocessed_data.get('text_use', '')
 
-            # ner_entities = extract_ner_entities({
-            #     "original": message.original_text,
-            #     "text_use": message.processed_text_use
-            # }, context=None)
-            # message.ner_entities = ner_entities
+            # Build context from previous user messages
+            previous_messages = Message.objects.filter(session=session, sender="user").exclude(original_text=validated_data.get('original_text')).order_by('-timestamp')[:5]
+            context = [msg.processed_text_use for msg in previous_messages if msg.processed_text_use]
 
-            # sentiment_result = sentiment_pipeline(message.processed_text_use, context=None)
-            # message.sentiment = sentiment_result.get('sentiment', '')
-            # message.overall_sentiment = sentiment_result.get('overall_sentiment', {})
-            
-            # doc_labels = self.context.get('doc_labels', [])
+            ner_entities = extract_ner_entities({
+                "original": message.original_text,
+                "text_use": message.processed_text_use
+            }, context=context)
+            message.ner_entities = ner_entities
 
-            # # Perform intent classification with the doc_labels (document-specific labels)
-            # intent = detect_intent(message.processed_text_use, doc_labels)
-            # # Store the detected intent in the message
-            # message.intent = intent.get('matched_labels', [])
+            sentiment_result = sentiment_pipeline(message.processed_text_use, context=context or [])
+            message.sentiment = sentiment_result.get('sentiment', '')
+            message.overall_sentiment = sentiment_result.get('overall_sentiment', {})
+
+            doc_labels = self.context.get('doc_labels', [])
+            intent_result = detect_intent(message.processed_text_use, doc_labels)
+            matched_labels = intent_result.get('matched_labels', [])
+            if isinstance(matched_labels, str):
+                matched_labels = [matched_labels]
+            elif matched_labels is None:
+                matched_labels = []
+            message.intent = matched_labels
 
         message.save()
         return message

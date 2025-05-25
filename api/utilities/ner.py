@@ -43,6 +43,7 @@ def update_context_with_ner(context, preprocessed_message, ner_entities):
     })
 
 def extract_ner_entities(preprocessed_message, context):
+
     """
     Complete NER pipeline:
     - Uses clean_text from preprocessing

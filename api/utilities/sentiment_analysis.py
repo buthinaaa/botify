@@ -69,6 +69,8 @@ def update_context_with_sentiment(context, preprocessed_message, sentiment_label
     })
 
 def get_overall_sentiment(context, window=10):
+    if context is None:
+        context = []
     """
     Looks at the last `window` messages and returns overall mood.
     """
@@ -78,6 +80,8 @@ def get_overall_sentiment(context, window=10):
     return counts
 
 def check_for_fallback(context, overall_counts, window=10, min_messages=5, threshold=0.7, trend_window=5, trend_threshold=0.6):
+    if context is None:
+        context = []
     """
     Trigger fallback only if:
     - Total negative sentiment in last `window` exceeds `threshold`
