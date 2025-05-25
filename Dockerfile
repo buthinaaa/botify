@@ -32,4 +32,4 @@ RUN dos2unix /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh
 
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8002"] 
+CMD ["daphne", "-b", "0.0.0.0", "-p", "8002", "config.asgi:application"]
