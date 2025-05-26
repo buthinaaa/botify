@@ -53,7 +53,7 @@ class GenerateResponse(APIView):
         except ChatbotData.DoesNotExist:
             raise NotFound(f"ChatbotData with id {request.data['chatbot_id']} does not exist.")
         # Get the doc_labels (intent labels from documents)
-        doc_labels = chatbot_data.intent_labels
+        doc_labels = chatbot_data.intent_labels or []
         serializer = MessageSerializer(data=request.data,context={'doc_labels': doc_labels})
         if serializer.is_valid():
             user_message = serializer.save()

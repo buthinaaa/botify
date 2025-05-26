@@ -46,12 +46,7 @@ def classify_question_or_not(message, threshold=0.4):
     # Get the predictions from the intent recognition API
     predictions = intent_recognition_api(message, all_labels, multi_label=False)
 
-    # Filter labels based on the threshold
-    if predictions:
-        best_label = max(predictions, key=lambda x: x[1])[0]
-        matched_labels = [best_label]
-    else:
-        matched_labels = []
+    matched_labels = max(predictions, key=lambda x: x[1])[0]
     # Check if the message is a question based on the labels
     is_question = "support-question" in matched_labels
 
