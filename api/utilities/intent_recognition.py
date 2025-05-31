@@ -33,25 +33,27 @@ def classify_question_or_not(message, threshold=0.4):
         threshold (float): The minimum confidence score required to consider the intent valid.
 
     Returns:
-        - is_question (bool): Whether the message is a question or not.
-        - matched_labels (list): The list of labels above the threshold.
-        - predictions (list): The predictions from the intent recognition API.
-    """
-    # Define the general intent labels to classify messages
-    general_labels = ["support-question", "feedback", "complaint", "greeting","chitchat"]
-
-    # Combine document-specific labels and general labels
+        
+    is_question (bool): Whether the message is a question or not.
+    matched_labels (list): The list of labels above the threshold.
+    predictions (list): The predictions from the intent recognition API.,
+    """# Define the general intent labels to classify messages
+    general_labels = ["support-question","support", "complaint", "appreciation", "greeting", "chitchat"]
+    
+        # Combine document-specific labels and general labels
     all_labels = general_labels
 
-    # Get the predictions from the intent recognition API
+        # Get the predictions from the intent recognition API
     predictions = intent_recognition_api(message, all_labels, multi_label=False)
 
+        # Filter labels based on the threshold
     matched_labels = max(predictions, key=lambda x: x[1])[0]
-    # Check if the message is a question based on the labels
-    is_question = "support-question" in matched_labels
 
-    # Return results
+        # Check if the message is a question based on the labels
+    is_question = "support-question" in matched_labels or "support" in matched_labels
+        # Return results
     return is_question, matched_labels, predictions
+
 
 def classify_topic_intent(message, doc_labels, threshold=0.3):
     """

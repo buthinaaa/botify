@@ -30,7 +30,7 @@ class MessageSerializer(serializers.ModelSerializer):
             message.processed_text_use = preprocessed_data.get('text_use', '')
 
             # Build context from previous user messages
-            previous_messages = Message.objects.filter(session=session, sender="user").exclude(original_text=validated_data.get('original_text')).order_by('-timestamp')[:5]
+            previous_messages = Message.objects.filter(session=session, sender="user").order_by('-timestamp')[:5]
             context = [msg.processed_text_use for msg in previous_messages if msg.processed_text_use]
 
             ner_entities = extract_ner_entities({
@@ -46,10 +46,12 @@ class MessageSerializer(serializers.ModelSerializer):
             doc_labels = self.context.get('doc_labels', [])
             intent_result = detect_intent(message.processed_text_use, doc_labels)
             matched_labels = intent_result.get('matched_labels', [])
+            
             if isinstance(matched_labels, str):
                 matched_labels = [matched_labels]
             elif matched_labels is None:
                 matched_labels = []
+
             message.intent = matched_labels
 
         message.save()
