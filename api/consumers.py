@@ -3,6 +3,7 @@ import json
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
+        print("I AM CONNECTED")
         self.session_id = self.scope['url_route']['kwargs']['session_id']
         self.room_group_name = f'chat_{self.session_id}'
 

@@ -10,6 +10,7 @@ from transformers import (
     AutoModelForSequenceClassification, 
     AutoModelForTokenClassification,
     AutoModelForSeq2SeqLM,
+    AutoModelForCausalLM,
     pipeline
 )
 from optimum.onnxruntime import ORTModelForSequenceClassification,ORTModelForTokenClassification,ORTModelForCausalLM
@@ -66,30 +67,32 @@ class NLPManager:
         """Load NLP models once."""
         print("Loading spaCy model...")
         self._nlp = spacy.load("en_core_web_sm")
-        
+
         print("Loading sentence transformer model...")
         self._embedding_model = SentenceTransformer(settings.EMBEDDING_MODEL_NAME)
         self._keybert_model = KeyBERT(model=settings.EMBEDDING_MODEL_NAME)
-        
+
+        def maybe_export(model_id, save_dir, task):
+            model_path = save_dir / "model.onnx"
+            if not model_path.exists():
+                print(f"Exporting and quantizing model: {model_id}")
+                main_export(
+                    model_name_or_path=model_id,
+                    output=save_dir,
+                    task=task,
+                    quantization="dynamic"
+                )
+            else:
+                print(f"Using cached quantized model: {model_id}")
+
         # Load NER model
         print("Loading NER model...")
         ner_model_id = "dslim/bert-base-NER-uncased"
         ner_save_dir = Path("quantized_models/ner")
         ner_save_dir.mkdir(parents=True, exist_ok=True)
-
-        # Export & quantize the NER model ONNX with dynamic quantization
-        main_export(
-            model_name_or_path=ner_model_id,
-            output=ner_save_dir,
-            task="token-classification",
-            quantization="dynamic"
-        )
-
-        # Load quantized NER model and tokenizer
+        maybe_export(ner_model_id, ner_save_dir, "token-classification")
         ner_tokenizer = AutoTokenizer.from_pretrained(ner_save_dir)
         ner_ort_model = ORTModelForTokenClassification.from_pretrained(ner_save_dir)
-
-        # Create ONNXRuntime NER pipeline using quantized model and tokenizer
         self._ner_pipeline = pipeline(
             "ner",
             model=ner_ort_model,
@@ -97,66 +100,38 @@ class NLPManager:
             aggregation_strategy="simple",
         )
 
-        # Load sentiment model
+        # Sentiment model
         print("Loading sentiment model...")
-        model_id = "cardiffnlp/twitter-roberta-base-sentiment-latest"
-        save_dir = Path("quantized_models/sentiment")
+        sentiment_model_id = "cardiffnlp/twitter-roberta-base-sentiment-latest"
+        sentiment_save_dir = Path("quantized_models/sentiment")
+        sentiment_save_dir.mkdir(parents=True, exist_ok=True)
+        maybe_export(sentiment_model_id, sentiment_save_dir, "text-classification")
+        self._sentiment_model = ORTModelForSequenceClassification.from_pretrained(sentiment_save_dir)
+        self._sentiment_tokenizer = AutoTokenizer.from_pretrained(sentiment_save_dir)
 
-        if save_dir.exists() and not save_dir.is_dir():
-            raise ValueError(f"{save_dir} exists and is not a directory!")
-        save_dir.mkdir(parents=True, exist_ok=True)
-
-        main_export(
-            model_name_or_path=model_id,
-            output=save_dir,
-            task="text-classification",
-            quantization="dynamic"
-        )
-        
-        self._sentiment_model = ORTModelForSequenceClassification.from_pretrained(save_dir)
-        self._sentiment_tokenizer = AutoTokenizer.from_pretrained(save_dir)
-
-        
-        # Load zero-shot classification model
+        # Zero-shot classification model
         print("Loading zero-shot classification model...")
-        intent_model_id = "facebook/bart-large-mnli"
-        intent_save_dir = Path("quantized_models/zero_shot")
-        intent_save_dir.mkdir(parents=True, exist_ok=True)
-
-        main_export(
-            model_name_or_path=intent_model_id,
-            output=intent_save_dir,
-            task="zero-shot-classification",
-            quantization="dynamic"
-        )
-
-        intent_tokenizer = AutoTokenizer.from_pretrained(intent_save_dir)
-        intent_ort_model = ORTModelForSequenceClassification.from_pretrained(intent_save_dir)
-
+        zero_shot_model_id = "facebook/bart-large-mnli"
+        zero_shot_save_dir = Path("quantized_models/zero_shot")
+        zero_shot_save_dir.mkdir(parents=True, exist_ok=True)
+        maybe_export(zero_shot_model_id, zero_shot_save_dir, "zero-shot-classification")
+        zero_shot_tokenizer = AutoTokenizer.from_pretrained(zero_shot_save_dir)
+        zero_shot_model = ORTModelForSequenceClassification.from_pretrained(zero_shot_save_dir)
         self._zero_shot_classifier = pipeline(
             "zero-shot-classification",
-            model=intent_ort_model,
-            tokenizer=intent_tokenizer,
+            model=zero_shot_model,
+            tokenizer=zero_shot_tokenizer,
         )
 
+        # Response model
         print("Loading response model...")
-        # Load once (at the start of your app or notebook)
-        model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+        response_model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
         response_save_dir = Path("quantized_models/response_generation")
-
-        if response_save_dir.exists() and not response_save_dir.is_dir():
-            raise ValueError(f"{response_save_dir} exists and is not a directory!")
         response_save_dir.mkdir(parents=True, exist_ok=True)
-
-        main_export(
-            model_name_or_path=model_id,
-            output=response_save_dir,
-            task="text-generation",
-            quantization="dynamic"
-        )
-        
-        self._response_model = ORTModelForCausalLM.from_pretrained(response_save_dir)
+        maybe_export(response_model_id, response_save_dir, "text-generation")
+        self._response_model = ORTModelForCausalLM.from_pretrained(response_save_dir, use_cache=False, use_io_binding=False)
         self._response_tokenizer = AutoTokenizer.from_pretrained(response_save_dir)
+
     
     @property
     def nlp(self):

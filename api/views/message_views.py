@@ -1,7 +1,11 @@
 import pickle
+import tempfile
 import numpy as np
+import logging
+import time
+import traceback
 from rest_framework.response import Response
-from api.models.chatbot_models import Chatbot, ChatbotData, ChatbotDocument
+from api.models.chatbot_models import ChatSession, Chatbot, ChatbotData, ChatbotDocument
 from api.serializers.message_serializer import MessageSerializer
 from api.models.chatbot_models import Message
 from rest_framework.views import APIView
@@ -12,8 +16,14 @@ from rest_framework.viewsets import ReadOnlyModelViewSet
 from rest_framework.permissions import IsAuthenticated
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+import faiss
+from django.db import transaction
+import os
 
 from api.utilities.response_generation import chatbot_response
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 channel_layer = get_channel_layer()
 
@@ -22,10 +32,68 @@ class MessagesViewSet(ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        if self.kwargs.get('session_id'):
-            return Message.objects.filter(chatbot__user=self.request.user, session_id=self.kwargs.get('session_id'))
-        else:
-            return Message.objects.filter(chatbot__user=self.request.user)
+        start_time = time.time()
+        logger.warning(f"MessagesViewSet.get_queryset called by user: {self.request.user.id}")
+        
+        try:
+            session_id = self.kwargs.get('session_id')
+            user_id = self.request.user.id
+            
+            if session_id:
+                logger.warning(f"Filtering messages for user {user_id} and session {session_id}")
+                queryset = Message.objects.filter(chatbot__user=self.request.user, session_id=session_id)
+                for message in queryset:
+                    print(message.original_text)
+                message_count = queryset.count()
+                logger.warning(f"Found {message_count} messages for user {user_id} and session {session_id}")
+            else:
+                logger.warning(f"Filtering all messages for user {user_id}")
+                queryset = Message.objects.filter(chatbot__user=self.request.user)
+                message_count = queryset.count()
+                logger.warning(f"Found {message_count} total messages for user {user_id}")
+            
+            end_time = time.time()
+            logger.warning(f"MessagesViewSet.get_queryset completed in {end_time - start_time:.3f}s")
+            return queryset
+            
+        except Exception as e:
+            logger.error(f"Error in MessagesViewSet.get_queryset for user {self.request.user.id}: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise
+
+class DashboardUserMessage(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request, session_id):
+        message = request.data.get('message')
+        chat_session = ChatSession.objects.get(id=session_id)
+        dashboard_user_message = {
+            "original_text": message,
+            "sender": "admin",
+            "chatbot_id": chat_session.chatbot_id,
+            "session_id": session_id
+            }
+        serializer = MessageSerializer(data=dashboard_user_message)
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            serializer.save()
+            chat_session.is_intervened = True
+            chat_session.save()
+        async_to_sync(channel_layer.group_send)(
+            f'chat_{session_id}',
+            {
+                "type": "chat_message",
+                "content": {
+                    "id": str(serializer.data['id']),
+                    "session_id": str(session_id),
+                    "original_text": serializer.data['original_text'],
+                    "sender": serializer.data['sender'],
+                    "timestamp": str(serializer.data['timestamp'])
+                }
+            }
+        )
+        return Response(status=status.HTTP_201_CREATED)
+
 
 class GenerateResponse(APIView):
     @extend_schema(
@@ -45,174 +113,337 @@ class GenerateResponse(APIView):
         ]
     )
     def post(self, request):
-        request.data['sender'] = 'user'
-        try:
-            # Get the chatbot using the chatbot_id
-            chatbot = Chatbot.objects.get(id=request.data['chatbot_id'])
-        except Chatbot.DoesNotExist:
-            raise NotFound(f"Chatbot with id {request.data['chatbot_id']} does not exist.")
+        start_time = time.time()
+        request_id = id(request)  # Unique identifier for this request
+        
+        logger.warning(f"[Request {request_id}] GenerateResponse.post started")
+        logger.warning(f"[Request {request_id}] Request data: {request.data}")
+        logger.warning(f"[Request {request_id}] User: {request.user.id if request.user.is_authenticated else 'Anonymous'}")
         
         try:
-            chatbot_data = ChatbotData.objects.get(chatbot=chatbot)
-
-        except ChatbotData.DoesNotExist:
-            raise NotFound(f"ChatbotData with id {request.data['chatbot_id']} does not exist.")
-        
-        # Get the doc_labels (intent labels from documents)
-        doc_labels = chatbot_data.intent_labels or []
-
-        serializer = MessageSerializer(data=request.data,context={'doc_labels': doc_labels})
-
-        if serializer.is_valid():
-            user_message = serializer.save()
-            async_to_sync(channel_layer.group_send)(
-                f'chat_{user_message.session_id}',
-                {
-                    "type": "chat_message",
-                    "content": {
-                        "id": str(user_message.id),
-                        "session_id": str(user_message.session_id),
-                        "original_text": user_message.original_text,
-                        "sender": user_message.sender,
-                        "timestamp": str(user_message.timestamp)
-                    }
-                }
-            )
-
-            original_text = user_message.original_text
-            processed_text_use = user_message.processed_text_use
-            ner_entities = user_message.ner_entities
-            sentiment = user_message.sentiment
-            overall_sentiment = user_message.overall_sentiment
-            intent = user_message.intent
-
-            #TODO: Call the chatbot model to get the response using the processed_text_use (Do all the processing you need, like NER, etc.)
-            previous_messages = Message.objects.filter(
-                chatbot=chatbot,
-                session=user_message.session
-            ).only("original_text", "sender", "timestamp").order_by('-timestamp')[:10]
-            conversation_context = [
-                {msg.sender: msg.original_text} 
-                for msg in reversed(previous_messages)
-            ]
-            for msg in reversed(previous_messages):
-                if msg.sender == 'user':
-                    conversation_context.append({"user": msg.original_text})
-                elif msg.sender == 'bot':
-                    conversation_context.append({"bot": msg.original_text})
+            request.data['sender'] = 'user'
+            chatbot_id = request.data.get('chatbot_id')
+            session_id = request.data.get('session_id')
+            original_text = request.data.get('original_text', '')
             
-            # Prepare document data for the chatbot_response function
-            document_data = prepare_document_data(chatbot_data)
+            logger.warning(f"[Request {request_id}] Processing message: '{original_text[:100]}...' for chatbot: {chatbot_id}")
+            
+            # Get the chatbot using the chatbot_id
+            logger.warning(f"[Request {request_id}] Fetching chatbot with ID: {chatbot_id}")
             try:
-                chatbot_result = chatbot_response(
-                    user_message=user_message.original_text,
-                    conversation_context=conversation_context,
-                    document_data=document_data,
-                    business_name=chatbot.name
-                )
-                
-                # Extract the bot response text
-                bot_response_text = chatbot_result['response']['text']
-                
-            except Exception as e:
-                # Fallback response if chatbot_response fails
-                bot_response_text = "I'm sorry, I'm having trouble processing your request right now. Please try again later."
-                print(f"Error in chatbot_response: {e}")
+                chatbot = Chatbot.objects.get(id=chatbot_id)
+                logger.warning(f"[Request {request_id}] Found chatbot: {chatbot.name} (ID: {chatbot.id})")
+            except Chatbot.DoesNotExist:
+                logger.error(f"[Request {request_id}] Chatbot with id {chatbot_id} does not exist")
+                raise NotFound(f"Chatbot with id {chatbot_id} does not exist.")
+            
+            # Get chatbot data
+            logger.warning(f"[Request {request_id}] Fetching ChatbotData for chatbot: {chatbot_id}")
+            try:
+                chatbot_data = ChatbotData.objects.get(chatbot=chatbot)
+                logger.warning(f"[Request {request_id}] Found ChatbotData with {len(chatbot_data.intent_labels or [])} intent labels")
+            except ChatbotData.DoesNotExist:
+                logger.error(f"[Request {request_id}] ChatbotData with id {chatbot_id} does not exist")
+                raise NotFound(f"ChatbotData with id {chatbot_id} does not exist.")
+            
+            # Get the doc_labels (intent labels from documents)
+            doc_labels = chatbot_data.intent_labels or []
+            logger.warning(f"[Request {request_id}] Using {len(doc_labels)} document labels: {doc_labels}")
 
-            chatbot_message = {
-                "original_text": bot_response_text, #TODO: Put the chatbot model reponse here
-                "sender": "bot",
-                "chatbot_id": user_message.chatbot_id,
-                "session_id": user_message.session_id
-            }
-
-            serializer = MessageSerializer(data=chatbot_message)
+            # Serialize and validate user message
+            logger.warning(f"[Request {request_id}] Serializing user message")
+            serializer = MessageSerializer(data=request.data, context={'doc_labels': doc_labels})
 
             if serializer.is_valid():
-                bot_message = serializer.save()
+                logger.warning(f"[Request {request_id}] User message serialization valid, saving to database")
+                user_message = serializer.save()
+                logger.warning(f"[Request {request_id}] User message saved with ID: {user_message.id}")
                 
-                async_to_sync(channel_layer.group_send)(
-                    f'chat_{user_message.session_id}',
-                    {
-                        "type": "chat_message",
-                        "content": {
-                            "id": str(bot_message.id),
-                            "session_id": str(bot_message.session_id),
-                            "original_text": bot_message.original_text,
-                            "sender": bot_message.sender,
-                            "timestamp": str(bot_message.timestamp)
+                # Send user message to WebSocket
+                logger.warning(f"[Request {request_id}] Sending user message to WebSocket channel: chat_{user_message.session_id}")
+                try:
+                    async_to_sync(channel_layer.group_send)(
+                        f'chat_{user_message.session_id}',
+                        {
+                            "type": "chat_message",
+                            "content": {
+                                "id": str(user_message.id),
+                                "session_id": str(user_message.session_id),
+                                "original_text": user_message.original_text,
+                                "sender": user_message.sender,
+                                "timestamp": str(user_message.timestamp)
+                            }
                         }
-                    }
-                )
+                    )
+                    logger.warning(f"[Request {request_id}] User message sent to WebSocket successfully")
+                except Exception as ws_error:
+                    logger.error(f"[Request {request_id}] WebSocket send failed: {str(ws_error)}")
+
+                # Extract processed message data
+                original_text = user_message.original_text
+                processed_text_use = user_message.processed_text_use
+                ner_entities = user_message.ner_entities
+                sentiment = user_message.sentiment
+                overall_sentiment = user_message.overall_sentiment
+                intent = user_message.intent
                 
-                return Response(serializer.data, status=status.HTTP_201_CREATED)
+                logger.warning(f"[Request {request_id}] Message processing results:")
+                logger.warning(f"[Request {request_id}] - Original text: {original_text}")
+                logger.warning(f"[Request {request_id}] - Processed text: {processed_text_use}")
+                logger.warning(f"[Request {request_id}] - NER entities: {ner_entities}")
+                logger.warning(f"[Request {request_id}] - Sentiment: {sentiment}")
+                logger.warning(f"[Request {request_id}] - Overall sentiment: {overall_sentiment}")
+                logger.warning(f"[Request {request_id}] - Intent: {intent}")
+
+                # Fetch conversation history
+                logger.warning(f"[Request {request_id}] Fetching conversation history")
+                previous_messages = Message.objects.filter(
+                    chatbot=chatbot,
+                    session=user_message.session
+                ).only("original_text", "sender", "timestamp").order_by('-timestamp')[:10]
+                
+                logger.warning(f"[Request {request_id}] Found {previous_messages.count()} previous messages")
+                
+                # Build conversation context
+                conversation_context = [
+                    {msg.sender: msg.original_text} 
+                    for msg in reversed(previous_messages)
+                ]
+                
+                # Fix duplicate context building
+                for msg in reversed(previous_messages):
+                    if msg.sender == 'user':
+                        conversation_context.append({"user": msg.original_text})
+                    elif msg.sender == 'bot':
+                        conversation_context.append({"bot": msg.original_text})
+                
+                logger.warning(f"[Request {request_id}] Built conversation context with {len(conversation_context)} entries")
+                
+                # Prepare document data for the chatbot_response function
+                logger.warning(f"[Request {request_id}] Preparing document data")
+                document_data_start = time.time()
+                document_data = prepare_document_data(chatbot_data, request_id)
+                document_data_end = time.time()
+                logger.warning(f"[Request {request_id}] Document data preparation completed in {document_data_end - document_data_start:.3f}s")
+                
+                # Generate chatbot response
+                logger.warning(f"[Request {request_id}] Calling chatbot_response function")
+                chatbot_start_time = time.time()
+                chatbot_session = ChatSession.objects.filter(id=session_id).first() if session_id else None
+                if not chatbot_session or not chatbot_session.is_intervened:
+                    try:
+                        chatbot_result = chatbot_response(
+                            user_message=user_message.original_text,
+                            conversation_context=conversation_context,
+                            document_data=document_data,
+                            business_name=chatbot.name
+                        )
+                        chatbot_end_time = time.time()
+                        logger.warning(f"[Request {request_id}] Chatbot response generated in {chatbot_end_time - chatbot_start_time:.3f}s")
+                        
+                        # Extract the bot response text
+                        bot_response_text = chatbot_result['response']['text']
+                        logger.warning(f"[Request {request_id}] Bot response: '{bot_response_text[:100]}...'")
+                        logger.warning(f"[Request {request_id}] Response debug info: {chatbot_result.get('debug_info', {})}")
+                        
+                    except Exception as e:
+                        chatbot_end_time = time.time()
+                        logger.error(f"[Request {request_id}] Chatbot response failed after {chatbot_end_time - chatbot_start_time:.3f}s: {str(e)}")
+                        logger.error(f"[Request {request_id}] Chatbot error traceback: {traceback.format_exc()}")
+                        
+                        # Fallback response if chatbot_response fails
+                        bot_response_text = "I'm sorry, I'm having trouble processing your request right now. Please try again later."
+
+                    # Create and save bot response
+                    logger.warning(f"[Request {request_id}] Creating bot response message")
+                    chatbot_message = {
+                        "original_text": bot_response_text,
+                        "sender": "bot",
+                        "chatbot_id": user_message.chatbot_id,
+                        "session_id": user_message.session_id
+                    }
+
+                    serializer = MessageSerializer(data=chatbot_message)
+
+                    if serializer.is_valid():
+                        logger.warning(f"[Request {request_id}] Bot message serialization valid, saving to database")
+                        bot_message = serializer.save()
+                        logger.warning(f"[Request {request_id}] Bot message saved with ID: {bot_message.id}")
+                        
+                        # Send bot message to WebSocket
+                        logger.warning(f"[Request {request_id}] Sending bot message to WebSocket")
+                        try:
+                            async_to_sync(channel_layer.group_send)(
+                                f'chat_{user_message.session_id}',
+                                {
+                                    "type": "chat_message",
+                                    "content": {
+                                        "id": str(bot_message.id),
+                                        "session_id": str(bot_message.session_id),
+                                        "original_text": bot_message.original_text,
+                                        "sender": bot_message.sender,
+                                        "timestamp": str(bot_message.timestamp)
+                                    }
+                                }
+                            )
+                            logger.warning(f"[Request {request_id}] Bot message sent to WebSocket successfully")
+                        except Exception as ws_error:
+                            logger.error(f"[Request {request_id}] WebSocket send failed for bot message: {str(ws_error)}")
+                        
+                        end_time = time.time()
+                        total_time = end_time - start_time
+                        logger.warning(f"[Request {request_id}] GenerateResponse.post completed successfully in {total_time:.3f}s")
+                        
+                        return Response(serializer.data, status=status.HTTP_201_CREATED)
+                    else:
+                        logger.error(f"[Request {request_id}] Bot message serialization failed: {serializer.errors}")
+                else:
+                    logger.warning(f"[Request {request_id}] Chatbot session is intervened, skipping response generation")
+                    return Response({"original_text": None}, status=status.HTTP_200_OK)
             else:
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        else:
+                logger.error(f"[Request {request_id}] User message serialization failed: {serializer.errors}")
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
-def prepare_document_data(chatbot_data):
-        """
-        Prepare document data structure required by chatbot_response function
-        """
-        try:
-            # Get all documents for this chatbot
-            documents = ChatbotDocument.objects.filter(chatbot_data=chatbot_data)
-            
-            # Prepare raw chunks
-            raw_chunks = []
-            for doc in documents:
-                if doc.chunks:
-                    raw_chunks.extend(doc.chunks)
-            
-            # Deserialize indexes if they exist
-            bm25_index = None
-            faiss_index = None
-            document_embeddings = None
-            
-            if chatbot_data.bm25_index_binary:
-                try:
-                    bm25_index = pickle.loads(chatbot_data.bm25_index_binary)
-                except Exception as e:
-                    print(f"Error loading BM25 index: {e}")
-            
-            if chatbot_data.faiss_index_binary:
-                try:
-                    faiss_index = pickle.loads(chatbot_data.faiss_index_binary)
-                except Exception as e:
-                    print(f"Error loading FAISS index: {e}")
-            
-            # Get document embeddings (you might need to adjust this based on your model structure)
-            embeddings = []
-            for doc in documents:
-                if hasattr(doc, 'embedding') and doc.embedding.embedding:
-                    embeddings.extend([doc.embedding.embedding])
-            
-            if embeddings:
-                document_embeddings = np.array(embeddings)
-            
-            # Prepare tokenized docs (if needed)
-            tokenized_docs = []
-            for doc in documents:
-                if doc.tokenized_text:
-                    tokenized_docs.extend(doc.tokenized_text)
-            
-            return {
-                'raw_chunks': raw_chunks,
-                'bm25_index': bm25_index,
-                'tokenized_docs': tokenized_docs,
-                'faiss_index': faiss_index,
-                'document_embeddings': document_embeddings,
-                'intent_labels': chatbot_data.intent_labels or []
-            }
-            
+                
         except Exception as e:
-            print(f"Error preparing document data: {e}")
-            return {
-                'raw_chunks': [],
-                'bm25_index': None,
-                'tokenized_docs': None,
-                'faiss_index': None,
-                'document_embeddings': None,
-                'intent_labels': []
-            }
+            end_time = time.time()
+            total_time = end_time - start_time
+            logger.error(f"[Request {request_id}] GenerateResponse.post failed after {total_time:.3f}s: {str(e)}")
+            logger.error(f"[Request {request_id}] Full traceback: {traceback.format_exc()}")
+            raise
+        
+def prepare_document_data(chatbot_data, request_id=None):
+    """
+    Prepare document data structure required by chatbot_response function
+    """
+    logger.warning(f"[Request {request_id}] Starting prepare_document_data")
+    start_time = time.time()
+    
+    try:
+        # Get all documents for this chatbot
+        logger.warning(f"[Request {request_id}] Fetching ChatbotDocument objects")
+        documents = ChatbotDocument.objects.filter(chatbot_data=chatbot_data)
+        doc_count = documents.count()
+        logger.warning(f"[Request {request_id}] Found {doc_count} documents")
+        
+        # Prepare raw chunks
+        logger.warning(f"[Request {request_id}] Preparing raw chunks")
+        raw_chunks = []
+        for i, doc in enumerate(documents):
+            if doc.chunks:
+                chunk_count = len(doc.chunks)
+                raw_chunks.extend(doc.chunks)
+                logger.warning(f"[Request {request_id}] Document {i+1}: Added {chunk_count} chunks")
+            else:
+                logger.warning(f"[Request {request_id}] Document {i+1}: No chunks found")
+        
+        total_chunks = len(raw_chunks)
+        logger.warning(f"[Request {request_id}] Total raw chunks collected: {total_chunks}")
+        
+        # Deserialize indexes if they exist
+        bm25_index = None
+        faiss_index = None
+        document_embeddings = None
+        
+        # Load BM25 index
+        if chatbot_data.bm25_index_binary:
+            logger.warning(f"[Request {request_id}] Loading BM25 index from binary data")
+            try:
+                bm25_index = pickle.loads(chatbot_data.bm25_index_binary)
+                logger.warning(f"[Request {request_id}] BM25 index loaded successfully")
+            except Exception as e:
+                logger.error(f"[Request {request_id}] Error loading BM25 index: {e}")
+        else:
+            logger.warning(f"[Request {request_id}] No BM25 index binary data found")
+        
+        # Load FAISS index
+        if chatbot_data.faiss_index_binary:
+            logger.warning(f"[Request {request_id}] Loading FAISS index from binary data")
+            try:
+                logger.warning(f"[Request {request_id}] FAISS binary data size: {len(chatbot_data.faiss_index_binary)} bytes")
+                logger.debug(f"[Request {request_id}] FAISS binary data preview: {chatbot_data.faiss_index_binary[:100]}")
+                
+                # Write binary to a temporary file
+                with tempfile.NamedTemporaryFile(delete=False) as temp_index_file:
+                    temp_index_file.write(chatbot_data.faiss_index_binary)
+                    temp_index_path = temp_index_file.name
+                logger.warning(f"[Request {request_id}] FAISS binary data written to temp file: {temp_index_path}")
+
+                # Load it properly using FAISS
+                faiss_index = faiss.read_index(temp_index_path)
+                logger.warning(f"[Request {request_id}] FAISS index loaded successfully")
+
+                # Clean up temp file
+                os.remove(temp_index_path)
+                logger.warning(f"[Request {request_id}] Temp file cleaned up")
+
+            except Exception as e:
+                logger.error(f"[Request {request_id}] Error loading FAISS index: {e}")
+                logger.error(f"[Request {request_id}] FAISS loading traceback: {traceback.format_exc()}")
+        else:
+            logger.warning(f"[Request {request_id}] No FAISS index binary data found")
+        
+        # Get document embeddings
+        logger.warning(f"[Request {request_id}] Processing document embeddings")
+        embeddings = []
+        for i, doc in enumerate(documents):
+            if hasattr(doc, 'embedding') and doc.embedding and doc.embedding.embedding:
+                embeddings.extend([doc.embedding.embedding])
+                logger.warning(f"[Request {request_id}] Document {i+1}: Added embedding")
+            else:
+                logger.warning(f"[Request {request_id}] Document {i+1}: No embedding found")
+        
+        if embeddings:
+            document_embeddings = np.array(embeddings)
+            logger.warning(f"[Request {request_id}] Document embeddings array shape: {document_embeddings.shape}")
+        else:
+            logger.warning(f"[Request {request_id}] No document embeddings found")
+        
+        # Prepare tokenized docs
+        logger.warning(f"[Request {request_id}] Preparing tokenized documents")
+        tokenized_docs = []
+        for i, doc in enumerate(documents):
+            if doc.tokenized_text:
+                token_count = len(doc.tokenized_text)
+                tokenized_docs.extend(doc.tokenized_text)
+                logger.warning(f"[Request {request_id}] Document {i+1}: Added {token_count} tokenized entries")
+            else:
+                logger.warning(f"[Request {request_id}] Document {i+1}: No tokenized text found")
+        
+        total_tokenized = len(tokenized_docs)
+        logger.warning(f"[Request {request_id}] Total tokenized docs: {total_tokenized}")
+        
+        # Create result
+        result = {
+            'raw_chunks': raw_chunks,
+            'bm25_index': bm25_index,
+            'tokenized_docs': tokenized_docs,
+            'faiss_index': faiss_index,
+            'document_embeddings': document_embeddings,
+            'intent_labels': chatbot_data.intent_labels or []
+        }
+        
+        end_time = time.time()
+        logger.warning(f"[Request {request_id}] prepare_document_data completed in {end_time - start_time:.3f}s")
+        logger.warning(f"[Request {request_id}] Document data summary:")
+        logger.warning(f"[Request {request_id}] - Raw chunks: {len(result['raw_chunks'])}")
+        logger.warning(f"[Request {request_id}] - BM25 index: {'Available' if result['bm25_index'] else 'None'}")
+        logger.warning(f"[Request {request_id}] - FAISS index: {'Available' if result['faiss_index'] else 'None'}")
+        logger.warning(f"[Request {request_id}] - Document embeddings: {'Available' if result['document_embeddings'] is not None else 'None'}")
+        logger.warning(f"[Request {request_id}] - Intent labels: {len(result['intent_labels'])}")
+        
+        return result
+        
+    except Exception as e:
+        end_time = time.time()
+        logger.error(f"[Request {request_id}] prepare_document_data failed after {end_time - start_time:.3f}s: {e}")
+        logger.error(f"[Request {request_id}] prepare_document_data traceback: {traceback.format_exc()}")
+        
+        # Return empty structure on error
+        return {
+            'raw_chunks': [],
+            'bm25_index': None,
+            'tokenized_docs': None,
+            'faiss_index': None,
+            'document_embeddings': None,
+            'intent_labels': []
+        }

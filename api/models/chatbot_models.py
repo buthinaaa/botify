@@ -56,6 +56,7 @@ class DocumentEmbedding(models.Model):
 class ChatSession(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     chatbot = models.ForeignKey(Chatbot, on_delete=models.CASCADE, related_name='chat_sessions')
+    is_intervened = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     session_id = models.CharField(max_length=255, null=True, blank=True)
 

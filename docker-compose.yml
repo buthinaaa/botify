@@ -3,7 +3,7 @@ services:
     build: .
     command: daphne -b 0.0.0.0 -p 8002 config.asgi:application
     volumes:
-      - C:/Users/DELL/.cache/huggingface:/root/.cache/huggingface
+      - C:/Users/Bassam Publicis/.cache/huggingface:/root/.cache/huggingface
       - .:/app
     ports:
       - "8002:8002"

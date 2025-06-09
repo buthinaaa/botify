@@ -25,8 +25,6 @@ RUN pip install --no-cache-dir PyMuPDF==1.23.8
 
 COPY . .
 
-RUN python manage.py collectstatic --noinput
-
 COPY entrypoint.sh /app/entrypoint.sh
 RUN dos2unix /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh
