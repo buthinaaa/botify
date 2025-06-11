@@ -9,8 +9,13 @@ from transformers import (
     AutoTokenizer, 
     AutoModelForSequenceClassification, 
     AutoModelForTokenClassification,
+    AutoModelForSeq2SeqLM,
+    AutoModelForCausalLM,
     pipeline
 )
+from optimum.onnxruntime import ORTModelForSequenceClassification,ORTModelForTokenClassification,ORTModelForCausalLM
+from pathlib import Path
+from optimum.exporters.onnx import main_export
 import torch
 
 class NLPManager:
@@ -25,6 +30,8 @@ class NLPManager:
     _sentiment_model = None
     _sentiment_tokenizer = None
     _zero_shot_classifier = None
+    _response_model = None
+    _response_tokenizer = None
     
     @classmethod
     def get_instance(cls):
@@ -60,26 +67,71 @@ class NLPManager:
         """Load NLP models once."""
         print("Loading spaCy model...")
         self._nlp = spacy.load("en_core_web_sm")
-        
+
         print("Loading sentence transformer model...")
         self._embedding_model = SentenceTransformer(settings.EMBEDDING_MODEL_NAME)
         self._keybert_model = KeyBERT(model=settings.EMBEDDING_MODEL_NAME)
-        
+
+        def maybe_export(model_id, save_dir, task):
+            model_path = save_dir / "model.onnx"
+            if not model_path.exists():
+                print(f"Exporting and quantizing model: {model_id}")
+                main_export(
+                    model_name_or_path=model_id,
+                    output=save_dir,
+                    task=task,
+                    quantization="dynamic"
+                )
+            else:
+                print(f"Using cached quantized model: {model_id}")
+
         # Load NER model
         print("Loading NER model...")
-        ner_tokenizer = AutoTokenizer.from_pretrained("dslim/bert-base-NER-uncased")
-        ner_model = AutoModelForTokenClassification.from_pretrained("dslim/bert-base-NER-uncased")
-        self._ner_pipeline = pipeline("ner", model=ner_model, tokenizer=ner_tokenizer, aggregation_strategy="simple")
-        
-        # Load sentiment model
+        ner_model_id = "dslim/bert-base-NER-uncased"
+        ner_save_dir = Path(settings.QUANTIZED_MODELS_PATH) / "ner"
+        ner_save_dir.mkdir(parents=True, exist_ok=True)
+        maybe_export(ner_model_id, ner_save_dir, "token-classification")
+        ner_tokenizer = AutoTokenizer.from_pretrained(ner_save_dir)
+        ner_ort_model = ORTModelForTokenClassification.from_pretrained(ner_save_dir)
+        self._ner_pipeline = pipeline(
+            "ner",
+            model=ner_ort_model,
+            tokenizer=ner_tokenizer,
+            aggregation_strategy="simple",
+        )
+
+        # Sentiment model
         print("Loading sentiment model...")
-        self._sentiment_tokenizer = AutoTokenizer.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment-latest")
-        self._sentiment_model = AutoModelForSequenceClassification.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment-latest")
-        self._sentiment_model.eval()
-        
-        # Load zero-shot classification model
+        sentiment_model_id = "cardiffnlp/twitter-roberta-base-sentiment-latest"
+        sentiment_save_dir = Path(settings.QUANTIZED_MODELS_PATH) / "sentiment"
+        sentiment_save_dir.mkdir(parents=True, exist_ok=True)
+        maybe_export(sentiment_model_id, sentiment_save_dir, "text-classification")
+        self._sentiment_model = ORTModelForSequenceClassification.from_pretrained(sentiment_save_dir)
+        self._sentiment_tokenizer = AutoTokenizer.from_pretrained(sentiment_save_dir)
+
+        # Zero-shot classification model
         print("Loading zero-shot classification model...")
-        self._zero_shot_classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+        zero_shot_model_id = "facebook/bart-large-mnli"
+        zero_shot_save_dir = Path(settings.QUANTIZED_MODELS_PATH) / "zero_shot"
+        zero_shot_save_dir.mkdir(parents=True, exist_ok=True)
+        maybe_export(zero_shot_model_id, zero_shot_save_dir, "zero-shot-classification")
+        zero_shot_tokenizer = AutoTokenizer.from_pretrained(zero_shot_save_dir)
+        zero_shot_model = ORTModelForSequenceClassification.from_pretrained(zero_shot_save_dir)
+        self._zero_shot_classifier = pipeline(
+            "zero-shot-classification",
+            model=zero_shot_model,
+            tokenizer=zero_shot_tokenizer,
+        )
+
+        # Response model
+        print("Loading response model...")
+        response_model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+        response_save_dir = Path(settings.QUANTIZED_MODELS_PATH) / "response_generation"
+        response_save_dir.mkdir(parents=True, exist_ok=True)
+        maybe_export(response_model_id, response_save_dir, "text-generation")
+        self._response_model = ORTModelForCausalLM.from_pretrained(response_save_dir, use_cache=False, use_io_binding=False)
+        self._response_tokenizer = AutoTokenizer.from_pretrained(response_save_dir)
+
     
     @property
     def nlp(self):
@@ -115,4 +167,14 @@ class NLPManager:
     def zero_shot_classifier(self):
         self.ensure_resources()
         return self._zero_shot_classifier
+    
+    @property
+    def response_model(self):
+        self.ensure_resources()
+        return self._response_model
+    
+    @property
+    def response_tokenizer(self):
+        self.ensure_resources()
+        return self._response_tokenizer
     

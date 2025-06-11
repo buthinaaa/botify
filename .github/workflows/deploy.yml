@@ -1,0 +1,112 @@
+name: Test, Lint and Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  test-and-deploy:
+    name: Test, Lint and Deploy to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'  # Adjust to match your Python version
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install flake8 pytest
+
+      - name: Run linting with flake8
+        run: |
+          echo "🔍 Running flake8 linting..."
+          flake8 . --count --show-source --statistics
+
+      - name: Run tests with pytest
+        run: |
+          echo "🧪 Running pytest tests..."
+          python -m pytest api/tests/ -v --tb=short
+
+      - name: Tests passed - proceeding with deployment
+        run: echo "✅ All tests passed! Starting deployment..."
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/botify.pem
+          chmod 600 ~/.ssh/botify.pem
+          ssh-keyscan -H ec2-13-53-171-107.eu-north-1.compute.amazonaws.com >> ~/.ssh/known_hosts
+
+      - name: Deploy to server
+        run: |
+          ssh -i ~/.ssh/botify.pem -o StrictHostKeyChecking=no admin@ec2-13-53-171-107.eu-north-1.compute.amazonaws.com << 'EOF'
+            set -e
+            
+            echo "🚀 Starting deployment..."
+            
+            # Navigate to the project directory
+            cd /home/admin/botify
+            
+            # Stash any local changes (if any)
+            git stash
+            
+            # Pull the latest changes from main branch
+            echo "📥 Pulling latest changes from GitHub..."
+            git fetch origin
+            git reset --hard origin/main
+            
+            # Activate virtual environment
+            echo "🔧 Activating virtual environment..."
+            source env/bin/activate
+            
+            # Install/update dependencies
+            echo "📦 Installing dependencies..."
+            pip install -r requirements.txt
+            
+            # Run Django management commands
+            echo "🗃️ Running database migrations..."
+            python manage.py migrate --noinput
+            
+            echo "📁 Collecting static files..."
+            python manage.py collectstatic --noinput
+            
+            # Restart services
+            echo "🔄 Restarting services..."
+            
+            # Stop daphne service
+            sudo pkill -f daphne || true
+            sleep 2
+            
+            # Start daphne in background (uncomment the appropriate line based on your setup)
+            # For development server:
+            # nohup python manage.py runserver 0.0.0.0:8000 > /tmp/django.log 2>&1 &
+            
+            # For production with daphne:
+            nohup daphne -b 0.0.0.0 -p 8000 config.asgi:application > /tmp/daphne.log 2>&1 &
+            
+            sleep 3
+            
+            # Restart nginx
+            sudo systemctl reload nginx
+            
+            echo "✅ Deployment completed successfully!"
+            
+            # Optional: Show service status
+            echo "📊 Service status:"
+            sudo systemctl status nginx --no-pager -l
+            
+          EOF
+
+      - name: Cleanup SSH
+        if: always()
+        run: |
+          rm -f ~/.ssh/botify.pem 

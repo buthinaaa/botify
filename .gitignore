@@ -4,3 +4,5 @@ staticfiles/
 .DS_Store
 .env
 **/__pycache__/
+quantized_models/
+media/

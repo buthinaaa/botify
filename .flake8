@@ -1,0 +1,30 @@
+[flake8]
+max-line-length = 127
+max-complexity = 10
+exclude = 
+    .git,
+    __pycache__,
+    env,
+    venv,
+    .env,
+    migrations,
+    .pytest_cache,
+    staticfiles,
+    media
+
+# Error codes to ignore
+ignore = 
+    E203,  # whitespace before ':'
+    W503,  # line break before binary operator
+    E501,  # line too long (handled by max-line-length)
+
+# Error codes to always check
+select = E,W,F,C90
+
+per-file-ignores =
+    # Settings files can have longer lines
+    */settings.py:E501
+    # Test files can have long lines and unused imports
+    */tests.py:E501,F401
+    test_*.py:E501,F401
+    **/tests/**:E501,F401 

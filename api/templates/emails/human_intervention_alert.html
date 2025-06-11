@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Botify Alert - Human Intervention Needed</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+            line-height: 1.6;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            background: linear-gradient(135deg, #245F60 0%, #397D7E 100%);
+            padding: 30px 20px;
+            text-align: center;
+            color: white;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 600;
+        }
+        .header .subtitle {
+            margin: 5px 0 0 0;
+            font-size: 16px;
+            opacity: 0.9;
+        }
+        .alert-badge {
+            background-color: #ff4757;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            display: inline-block;
+            margin-top: 15px;
+        }
+        .content {
+            padding: 40px 30px;
+        }
+        .alert-icon {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+        .alert-icon .emoji {
+            font-size: 48px;
+            margin-bottom: 10px;
+            display: block;
+        }
+        .alert-title {
+            color: #245F60;
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .alert-message {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 20px;
+            margin: 25px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        .alert-message p {
+            margin: 0;
+            color: #856404;
+            font-size: 16px;
+        }
+        .details-box {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 25px 0;
+        }
+        .details-box h3 {
+            color: #245F60;
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        .details-box ul {
+            margin: 0;
+            padding-left: 20px;
+            color: #495057;
+        }
+        .details-box li {
+            margin-bottom: 8px;
+        }
+        .action-section {
+            background-color: #245F60;
+            color: white;
+            padding: 25px;
+            border-radius: 8px;
+            text-align: center;
+            margin: 30px 0;
+        }
+        .action-section h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+        .action-section p {
+            margin-bottom: 20px;
+            opacity: 0.9;
+        }
+        .cta-button {
+            display: inline-block;
+            background-color: #64DADC;
+            color: #245F60;
+            text-decoration: none;
+            padding: 12px 30px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 16px;
+            transition: background-color 0.3s ease;
+        }
+        .cta-button:hover {
+            background-color: #5bc5c7;
+        }
+        .footer {
+            background-color: #245F60;
+            color: white;
+            padding: 25px;
+            text-align: center;
+            font-size: 14px;
+        }
+        .footer p {
+            margin: 0;
+            opacity: 0.8;
+        }
+        .footer .brand {
+            font-weight: 600;
+            color: #64DADC;
+        }
+        .divider {
+            height: 1px;
+            background: linear-gradient(to right, transparent, #64DADC, transparent);
+            margin: 30px 0;
+        }
+        @media only screen and (max-width: 600px) {
+            .content {
+                padding: 30px 20px;
+            }
+            .header {
+                padding: 25px 15px;
+            }
+            .header h1 {
+                font-size: 24px;
+            }
+            .alert-title {
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🤖 Botify</h1>
+            <p class="subtitle">AI Chatbot Management Platform</p>
+            <div class="alert-badge">🚨 URGENT ALERT</div>
+        </div>
+
+        <!-- Content -->
+        <div class="content">
+            <div class="alert-icon">
+                <span class="emoji">😟</span>
+            </div>
+            
+            <h2 class="alert-title">Human Intervention Needed</h2>
+            
+            <div class="alert-message">
+                <p><strong>Alert:</strong> A user in your chatbot conversation is showing signs of frustration. Three consecutive messages with negative sentiment have been detected.</p>
+            </div>
+
+            <div class="details-box">
+                <h3>What This Means:</h3>
+                <ul>
+                    <li>Your chatbot user may be experiencing difficulties</li>
+                    <li>The conversation sentiment has turned negative</li>
+                    <li>User satisfaction might be at risk</li>
+                    <li>Immediate attention could improve the experience</li>
+                </ul>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="action-section">
+                <h3>Recommended Action</h3>
+                <p>Consider stepping in to provide personalized assistance and turn this conversation around.</p>
+                <a href="{{ conversation_url }}" class="cta-button" target="_blank">View Conversation →</a>
+            </div>
+
+            <div class="details-box">
+                <h3>💡 Pro Tips:</h3>
+                <ul>
+                    <li>Acknowledge the user's frustration with empathy</li>
+                    <li>Provide direct, helpful solutions</li>
+                    <li>Follow up to ensure their issue is resolved</li>
+                    <li>Use this feedback to improve your chatbot's responses</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>This alert was automatically generated by <span class="brand">Botify</span></p>
+            <p>Helping you provide exceptional customer experiences</p>
+        </div>
+    </div>
+</body>
+</html> 
