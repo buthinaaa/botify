@@ -17,7 +17,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'  # Adjust to match your Python version
+          python-version: '3.10'
           cache: 'pip'
 
       - name: Install dependencies
@@ -86,11 +86,7 @@ jobs:
             sudo pkill -f daphne || true
             sleep 2
             
-            # Start daphne in background (uncomment the appropriate line based on your setup)
-            # For development server:
-            # nohup python manage.py runserver 0.0.0.0:8000 > /tmp/django.log 2>&1 &
-            
-            # For production with daphne:
+            # Start daphne in the background
             nohup daphne -b 0.0.0.0 -p 8000 config.asgi:application > /tmp/daphne.log 2>&1 &
             
             sleep 3
@@ -110,3 +106,6 @@ jobs:
         if: always()
         run: |
           rm -f ~/.ssh/botify.pem 
+
+
+
