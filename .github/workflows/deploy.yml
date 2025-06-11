@@ -2,7 +2,7 @@ name: Test, Lint and Deploy to Production
 
 on:
   push:
-    branches: [main]
+    branches: [blank]
   workflow_dispatch: # Allows manual triggering
 
 jobs:
