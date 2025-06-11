@@ -12,7 +12,6 @@ class ApiConfig(AppConfig):
         if os.environ.get('RUN_MAIN') != 'true':
             return
 
-        # Avoid loading models for management commands like migrate, createsuperuser, etc.
         if len(sys.argv) > 1 and sys.argv[1] not in ['runserver', 'gunicorn', 'uvicorn']:
             return
 

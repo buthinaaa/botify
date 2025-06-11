@@ -19,8 +19,13 @@ from asgiref.sync import async_to_sync
 import faiss
 from django.db import transaction
 import os
+from django.core.mail import send_mail
+from django.conf import settings
+from django.template.loader import render_to_string
+from django.utils.html import strip_tags
 
 from api.utilities.response_generation import chatbot_response
+from api.utilities.sentiment_analysis import check_for_fallback
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -116,29 +121,16 @@ class GenerateResponse(APIView):
         start_time = time.time()
         request_id = id(request)  # Unique identifier for this request
         
-        logger.warning(f"[Request {request_id}] GenerateResponse.post started")
-        logger.warning(f"[Request {request_id}] Request data: {request.data}")
-        logger.warning(f"[Request {request_id}] User: {request.user.id if request.user.is_authenticated else 'Anonymous'}")
-        
         try:
             request.data['sender'] = 'user'
             chatbot_id = request.data.get('chatbot_id')
             session_id = request.data.get('session_id')
             original_text = request.data.get('original_text', '')
             
-            logger.warning(f"[Request {request_id}] Processing message: '{original_text[:100]}...' for chatbot: {chatbot_id}")
-            
-            # Get the chatbot using the chatbot_id
-            logger.warning(f"[Request {request_id}] Fetching chatbot with ID: {chatbot_id}")
             try:
                 chatbot = Chatbot.objects.get(id=chatbot_id)
-                logger.warning(f"[Request {request_id}] Found chatbot: {chatbot.name} (ID: {chatbot.id})")
             except Chatbot.DoesNotExist:
-                logger.error(f"[Request {request_id}] Chatbot with id {chatbot_id} does not exist")
                 raise NotFound(f"Chatbot with id {chatbot_id} does not exist.")
-            
-            # Get chatbot data
-            logger.warning(f"[Request {request_id}] Fetching ChatbotData for chatbot: {chatbot_id}")
             try:
                 chatbot_data = ChatbotData.objects.get(chatbot=chatbot)
                 logger.warning(f"[Request {request_id}] Found ChatbotData with {len(chatbot_data.intent_labels or [])} intent labels")
@@ -146,21 +138,12 @@ class GenerateResponse(APIView):
                 logger.error(f"[Request {request_id}] ChatbotData with id {chatbot_id} does not exist")
                 raise NotFound(f"ChatbotData with id {chatbot_id} does not exist.")
             
-            # Get the doc_labels (intent labels from documents)
             doc_labels = chatbot_data.intent_labels or []
-            logger.warning(f"[Request {request_id}] Using {len(doc_labels)} document labels: {doc_labels}")
-
-            # Serialize and validate user message
-            logger.warning(f"[Request {request_id}] Serializing user message")
             serializer = MessageSerializer(data=request.data, context={'doc_labels': doc_labels})
 
             if serializer.is_valid():
-                logger.warning(f"[Request {request_id}] User message serialization valid, saving to database")
                 user_message = serializer.save()
-                logger.warning(f"[Request {request_id}] User message saved with ID: {user_message.id}")
                 
-                # Send user message to WebSocket
-                logger.warning(f"[Request {request_id}] Sending user message to WebSocket channel: chat_{user_message.session_id}")
                 try:
                     async_to_sync(channel_layer.group_send)(
                         f'chat_{user_message.session_id}',
@@ -175,66 +158,46 @@ class GenerateResponse(APIView):
                             }
                         }
                     )
-                    logger.warning(f"[Request {request_id}] User message sent to WebSocket successfully")
                 except Exception as ws_error:
                     logger.error(f"[Request {request_id}] WebSocket send failed: {str(ws_error)}")
 
-                # Extract processed message data
-                original_text = user_message.original_text
-                processed_text_use = user_message.processed_text_use
-                ner_entities = user_message.ner_entities
-                sentiment = user_message.sentiment
-                overall_sentiment = user_message.overall_sentiment
-                intent = user_message.intent
-                
-                logger.warning(f"[Request {request_id}] Message processing results:")
-                logger.warning(f"[Request {request_id}] - Original text: {original_text}")
-                logger.warning(f"[Request {request_id}] - Processed text: {processed_text_use}")
-                logger.warning(f"[Request {request_id}] - NER entities: {ner_entities}")
-                logger.warning(f"[Request {request_id}] - Sentiment: {sentiment}")
-                logger.warning(f"[Request {request_id}] - Overall sentiment: {overall_sentiment}")
-                logger.warning(f"[Request {request_id}] - Intent: {intent}")
-
-                # Fetch conversation history
-                logger.warning(f"[Request {request_id}] Fetching conversation history")
                 previous_messages = Message.objects.filter(
                     chatbot=chatbot,
                     session=user_message.session
-                ).only("original_text", "sender", "timestamp").order_by('-timestamp')[:10]
-                
-                logger.warning(f"[Request {request_id}] Found {previous_messages.count()} previous messages")
-                
-                # Build conversation context
-                conversation_context = [
-                    {msg.sender: msg.original_text} 
-                    for msg in reversed(previous_messages)
-                ]
-                
-                # Fix duplicate context building
-                for msg in reversed(previous_messages):
-                    if msg.sender == 'user':
-                        conversation_context.append({"user": msg.original_text})
-                    elif msg.sender == 'bot':
-                        conversation_context.append({"bot": msg.original_text})
-                
-                logger.warning(f"[Request {request_id}] Built conversation context with {len(conversation_context)} entries")
-                
-                # Prepare document data for the chatbot_response function
-                logger.warning(f"[Request {request_id}] Preparing document data")
+                ).values('sentiment').order_by('-timestamp')[:10]
+                previous_messages = list(previous_messages)
+                if check_for_fallback(previous_messages):
+                    try:
+                        session_id = user_message.session_id
+                        conversation_url = f"{settings.FRONTEND_BASE_URL}{settings.FRONTEND_CHATS_PATH}/{chatbot.id}?session_id={session_id}"                        
+                        html_message = render_to_string('emails/human_intervention_alert.html', {
+                            'chatbot_name': chatbot.name,
+                            'user_email': chatbot.user.email,
+                            'conversation_url': conversation_url,
+                        })
+                        plain_message = strip_tags(html_message)
+                        
+                        send_mail(
+                            subject="🚨 Botify Alert: Human Intervention Needed",
+                            message=plain_message,
+                            from_email=settings.DEFAULT_FROM_EMAIL,
+                            recipient_list=[chatbot.user.email],
+                            html_message=html_message,
+                            fail_silently=False,
+                        )
+                        logger.warning(f"[Request {request_id}] Human intervention alert email sent to {chatbot.user.email}")
+                    except Exception as email_error:
+                        logger.error(f"[Request {request_id}] Failed to send human intervention email: {str(email_error)}")
                 document_data_start = time.time()
                 document_data = prepare_document_data(chatbot_data, request_id)
                 document_data_end = time.time()
-                logger.warning(f"[Request {request_id}] Document data preparation completed in {document_data_end - document_data_start:.3f}s")
-                
-                # Generate chatbot response
-                logger.warning(f"[Request {request_id}] Calling chatbot_response function")
                 chatbot_start_time = time.time()
                 chatbot_session = ChatSession.objects.filter(id=session_id).first() if session_id else None
                 if not chatbot_session or not chatbot_session.is_intervened:
                     try:
                         chatbot_result = chatbot_response(
                             user_message=user_message.original_text,
-                            conversation_context=conversation_context,
+                            conversation_context=previous_messages,
                             document_data=document_data,
                             business_name=chatbot.name
                         )

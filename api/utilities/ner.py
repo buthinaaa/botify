@@ -17,7 +17,6 @@ def call_ner_api(text, max_retries=5, backoff_factor=1.0):
     list: List of extracted entities with 'entity_group', 'word', 'score', etc.
     """
     logger.warning("call_ner_api started")
-    logger.debug(f"Input text: '{text[:100]}...'")
     
     start_time = time.time()
     

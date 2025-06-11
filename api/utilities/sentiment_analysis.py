@@ -16,7 +16,6 @@ def get_sentiment_from_api(text, max_retries=5, backoff_factor=1.0):
     Uses the centralized sentiment model from NLPManager to classify the input text.
     """
     logger.warning("get_sentiment_from_api started")
-    logger.debug(f"Input text: '{text[:100]}...'")
     
     start_time = time.time()
     
@@ -71,7 +70,6 @@ def analyze_sentiment(preprocessed_message, context=None, score_threshold=0.5, f
     start_time = time.time()
     
     text = preprocessed_message["original"]
-    logger.warning(f"Analyzing sentiment for text: '{text[:100]}...'")
     
     # Step 1: Initial sentiment analysis
     logger.warning("STEP 1: Initial sentiment analysis")
@@ -91,7 +89,7 @@ def analyze_sentiment(preprocessed_message, context=None, score_threshold=0.5, f
         logger.warning(f"Low confidence ({score:.3f} < {score_threshold}), trying with context")
         context_start = time.time()
         
-        recent_texts = [entry.get("original", "") for entry in context[-2:] if "original" in entry]
+        recent_texts = [entry.get("original", "") for entry in context if "original" in entry]
         if recent_texts:
             combined_text = " ".join(recent_texts + [text])
             logger.warning(f"Combined text with context: '{combined_text[:100]}...'")
@@ -147,18 +145,19 @@ def get_overall_sentiment(context, window=10):
     logger.debug(f"Total context entries: {len(context)}")
     
     start_time = time.time()
-    
+    print("received context in get_overall_sentiment", context)
     recent = context[-window:]
     sentiments = [entry.get("sentiment") for entry in recent if "sentiment" in entry]
     counts = Counter(sentiments)
-    
+    print("sentiments", sentiments)
+    print("counts", counts)
     end_time = time.time()
     logger.warning(f"get_overall_sentiment completed in {end_time - start_time:.3f}s")
     logger.warning(f"Sentiment distribution in last {window} messages: {dict(counts)}")
     
     return counts
 
-def check_for_fallback(context, overall_counts, window=10, min_messages=5, threshold=0.7, trend_window=5, trend_threshold=0.6):
+def check_for_fallback(context, overall_counts=None, window=10, min_messages=5, threshold=0.7, trend_window=5, trend_threshold=0.6) -> bool:
     """
     Trigger fallback only if:
     - Total negative sentiment in last `window` exceeds `threshold`
@@ -174,21 +173,22 @@ def check_for_fallback(context, overall_counts, window=10, min_messages=5, thres
     
     start_time = time.time()
     
-    total = sum(overall_counts.values())
-    logger.warning(f"Total messages analyzed: {total}")
-    
-    if total < min_messages:
-        logger.warning(f"Not enough messages ({total} < {min_messages}), no fallback check")
-        return  # Not enough data
+    if overall_counts:
+        total = sum(overall_counts.values())
+        logger.warning(f"Total messages analyzed: {total}")
+        
+        if total < min_messages:
+            logger.warning(f"Not enough messages ({total} < {min_messages}), no fallback check")
+            return  # Not enough data
 
-    # Overall negativity
-    negative_count = overall_counts.get("negative", 0)
-    overall_ratio = negative_count / total
-    logger.warning(f"Overall negative ratio: {overall_ratio:.3f} ({negative_count}/{total})")
+        # Overall negativity
+        negative_count = overall_counts.get("negative", 0)
+        overall_ratio = negative_count / total
+        logger.warning(f"Overall negative ratio: {overall_ratio:.3f} ({negative_count}/{total})")
 
-    if overall_ratio < threshold:
-        logger.warning(f"Overall negativity below threshold ({overall_ratio:.3f} < {threshold}), no fallback")
-        return  # Not bad enough overall
+        if overall_ratio < threshold:
+            logger.warning(f"Overall negativity below threshold ({overall_ratio:.3f} < {threshold}), no fallback")
+            return  # Not bad enough overall
 
     # Check recent trend
     logger.warning("Checking recent trend for improvement")
@@ -209,17 +209,19 @@ def check_for_fallback(context, overall_counts, window=10, min_messages=5, thres
 
     if trend_ratio >= trend_threshold:
         logger.warning("🚨 ESCALATION NEEDED: Persistent negative sentiment detected!")
-        print("🚨 Hey, we need a human here! 🚨")
+        return True
     else:
         logger.warning("🟢 User sentiment is improving, no fallback needed")
         print("🟢 User sentiment is improving, no fallback needed.")
+    
+    return False
 
 def sentiment_pipeline(message, context=None):
     """
     A simple pipeline function that wraps the 4 sentiment analysis functions.
     """
     logger.warning("sentiment_pipeline started")
-    logger.debug(f"Message: '{message[:100]}...'")
+    # logger.debug(f"Message: '{message[:100]}...'")
     logger.debug(f"Context provided: {'Yes' if context else 'No'}")
     
     start_time = time.time()
@@ -246,7 +248,9 @@ def sentiment_pipeline(message, context=None):
     # Step 3: Update context
     logger.warning("STEP 3: Updating context")
     context_start = time.time()
-    context = update_context_with_sentiment(context, preprocessed_message, sentiment_label)
+    print("context before update", context)
+    update_context_with_sentiment(context, preprocessed_message, sentiment_label)
+    print("context after update", context)
     context_end = time.time()
     logger.warning(f"Context update completed in {context_end - context_start:.3f}s")
 

@@ -26,7 +26,6 @@ def normalize_repeated_chars(text):
     Only keeps up to 2 consecutive occurrences of the same character
     """
     logger.debug("normalize_repeated_chars started")
-    logger.debug(f"Input text: '{text[:100]}...'")
     
     # This regex finds 3 or more of the same character and replaces with 2
     result = re.sub(r'(.)\1{2,}', r'\1\1', text)

@@ -37,7 +37,7 @@ class ChatbotDocument(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     chatbot_data = models.ForeignKey(ChatbotData, on_delete=models.CASCADE, related_name='documents')
     original_filename = models.CharField(max_length=255, null=True)
-    chunks = chunks = ArrayField(models.TextField(), null=True)
+    chunks = ArrayField(models.TextField(), null=True)
     tokenized_text = ArrayField(models.CharField(max_length=100, null=True), null=True)
     
     def __str__(self):
@@ -65,10 +65,10 @@ class Message(models.Model):
     chatbot = models.ForeignKey(Chatbot, on_delete=models.CASCADE, related_name="messages")
     session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name="messages")
     sender = models.CharField(max_length=10, choices=SENDER_CHOICES)
-    original_text = models.TextField(null=True, blank=True)  # New field to store original text
+    original_text = models.TextField(null=True, blank=True)
     processed_text_use = models.TextField(null=True, blank=True) 
     timestamp = models.DateTimeField(auto_now_add=True)
     sentiment = models.CharField(max_length=50, null=True, blank=True)
     overall_sentiment = models.JSONField(null=True, blank=True) 
     ner_entities = ArrayField(models.CharField(max_length=255), null=True, blank=True)
-    intent = ArrayField(models.CharField(max_length=255), null=True, blank=True)  # New field to store intent classification result
+    intent = ArrayField(models.CharField(max_length=255), null=True, blank=True)

@@ -65,25 +65,17 @@ class ChatbotSerializer(serializers.ModelSerializer):
                 )
                 temp_index_file = tempfile.NamedTemporaryFile(delete=False)
                 temp_index_path = temp_index_file.name
-                temp_index_file.close()  # Close it so FAISS can write to it
-
+                temp_index_file.close()
                 try:
-                    # Write the FAISS index to the temporary file
                     faiss.write_index(faiss_index, temp_index_path)
-                    
-                    # Read the file content into memory
                     with open(temp_index_path, 'rb') as file:
                         index_binary = file.read()
-                    
-                    # Store the binary data in your database
                     chatbot_data.faiss_index_binary = index_binary
                     
                 finally:
-                    # Clean up the temporary file
                     if os.path.exists(temp_index_path):
                         os.remove(temp_index_path)
 
-                # Store the BM25 index as pickled binary data
                 chatbot_data.bm25_index_binary = pickle.dumps(bm25_index)
                 chatbot_data.save()
                 chunk_pointer = 0
@@ -91,8 +83,6 @@ class ChatbotSerializer(serializers.ModelSerializer):
                     filename = os.path.basename(temp_file_paths[i])
                     num_chunks = chunk_counts[i]
                     chunk_embeds = document_embeddings[chunk_pointer:chunk_pointer + num_chunks]
-
-                    # Average them to create one document-level embedding
                     avg_embedding = np.mean(chunk_embeds, axis=0)
                     tokenized_text = tokenized_docs[i]
 

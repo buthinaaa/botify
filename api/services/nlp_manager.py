@@ -88,7 +88,7 @@ class NLPManager:
         # Load NER model
         print("Loading NER model...")
         ner_model_id = "dslim/bert-base-NER-uncased"
-        ner_save_dir = Path("quantized_models/ner")
+        ner_save_dir = Path(settings.QUANTIZED_MODELS_PATH) / "ner"
         ner_save_dir.mkdir(parents=True, exist_ok=True)
         maybe_export(ner_model_id, ner_save_dir, "token-classification")
         ner_tokenizer = AutoTokenizer.from_pretrained(ner_save_dir)
@@ -103,7 +103,7 @@ class NLPManager:
         # Sentiment model
         print("Loading sentiment model...")
         sentiment_model_id = "cardiffnlp/twitter-roberta-base-sentiment-latest"
-        sentiment_save_dir = Path("quantized_models/sentiment")
+        sentiment_save_dir = Path(settings.QUANTIZED_MODELS_PATH) / "sentiment"
         sentiment_save_dir.mkdir(parents=True, exist_ok=True)
         maybe_export(sentiment_model_id, sentiment_save_dir, "text-classification")
         self._sentiment_model = ORTModelForSequenceClassification.from_pretrained(sentiment_save_dir)
@@ -112,7 +112,7 @@ class NLPManager:
         # Zero-shot classification model
         print("Loading zero-shot classification model...")
         zero_shot_model_id = "facebook/bart-large-mnli"
-        zero_shot_save_dir = Path("quantized_models/zero_shot")
+        zero_shot_save_dir = Path(settings.QUANTIZED_MODELS_PATH) / "zero_shot"
         zero_shot_save_dir.mkdir(parents=True, exist_ok=True)
         maybe_export(zero_shot_model_id, zero_shot_save_dir, "zero-shot-classification")
         zero_shot_tokenizer = AutoTokenizer.from_pretrained(zero_shot_save_dir)
@@ -126,7 +126,7 @@ class NLPManager:
         # Response model
         print("Loading response model...")
         response_model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-        response_save_dir = Path("quantized_models/response_generation")
+        response_save_dir = Path(settings.QUANTIZED_MODELS_PATH) / "response_generation"
         response_save_dir.mkdir(parents=True, exist_ok=True)
         maybe_export(response_model_id, response_save_dir, "text-generation")
         self._response_model = ORTModelForCausalLM.from_pretrained(response_save_dir, use_cache=False, use_io_binding=False)

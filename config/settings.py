@@ -31,7 +31,8 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
 
-
+FRONTEND_BASE_URL = os.environ.get('FRONTEND_BASE_URL')
+FRONTEND_CHATS_PATH = "/Chats"
 
 # Application definition
 
@@ -177,6 +178,15 @@ USE_I18N = True
 
 USE_TZ = True
 
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+
+EMAIL_HOST_USER = 'terevenareda22@gmail.com'       # Your Gmail address
+EMAIL_HOST_PASSWORD = 'hjiw ryzd ygmd ottp'      # App password (not Gmail login password)
+
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
@@ -196,4 +206,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+
+# NLP Models configuration
+QUANTIZED_MODELS_PATH = os.environ.get('QUANTIZED_MODELS_PATH', os.path.join(BASE_DIR, 'quantized_models'))
 

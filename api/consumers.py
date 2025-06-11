@@ -21,7 +21,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
     async def receive(self, text_data):
-        # Optional: handle client-side sending
         pass
 
     async def chat_message(self, event):
