@@ -14,9 +14,9 @@ exclude =
 
 # Error codes to ignore
 ignore = 
-    E203,  # whitespace before ':'
-    W503,  # line break before binary operator
-    E501,  # line too long (handled by max-line-length)
+    E203,
+    W503,
+    E501,
 
 # Error codes to always check
 select = E,W,F,C90
@@ -27,4 +27,4 @@ per-file-ignores =
     # Test files can have long lines and unused imports
     */tests.py:E501,F401
     test_*.py:E501,F401
-    **/tests/**:E501,F401 
+    **/tests/**:E501,F401
