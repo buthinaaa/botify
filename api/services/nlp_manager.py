@@ -30,8 +30,8 @@ class NLPManager:
     _sentiment_model = None
     _sentiment_tokenizer = None
     _zero_shot_classifier = None
-    _response_model = None
-    _response_tokenizer = None
+    # _response_model = None
+    # _response_tokenizer = None
     
     @classmethod
     def get_instance(cls):
@@ -123,14 +123,25 @@ class NLPManager:
             tokenizer=zero_shot_tokenizer,
         )
 
-        # Response model
-        print("Loading response model...")
-        response_model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-        response_save_dir = Path(settings.QUANTIZED_MODELS_PATH) / "response_generation"
-        response_save_dir.mkdir(parents=True, exist_ok=True)
-        maybe_export(response_model_id, response_save_dir, "text-generation")
-        self._response_model = ORTModelForCausalLM.from_pretrained(response_save_dir, use_cache=False, use_io_binding=False)
-        self._response_tokenizer = AutoTokenizer.from_pretrained(response_save_dir)
+        # # OPTIMIZED Response model - remove problematic parameters
+        # print("Loading response model...")
+        # response_model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+        # response_save_dir = Path(settings.QUANTIZED_MODELS_PATH) / "response_generation"
+        # response_save_dir.mkdir(parents=True, exist_ok=True)
+        # maybe_export(response_model_id, response_save_dir, "text-generation")
+        
+        # # Simplified model loading - let ONNX Runtime handle optimization
+        # self._response_model = ORTModelForCausalLM.from_pretrained(
+        #     response_save_dir,
+        #     provider="CUDAExecutionProvider",
+        #     use_cache=False,
+        #     use_io_binding=False,
+        # )
+        # self._response_tokenizer = AutoTokenizer.from_pretrained(response_save_dir)
+        
+        # # Ensure pad token is set
+        # if self._response_tokenizer.pad_token is None:
+        #     self._response_tokenizer.pad_token = self._response_tokenizer.eos_token
 
     
     @property
@@ -168,13 +179,13 @@ class NLPManager:
         self.ensure_resources()
         return self._zero_shot_classifier
     
-    @property
-    def response_model(self):
-        self.ensure_resources()
-        return self._response_model
+    # @property
+    # def response_model(self):
+    #     self.ensure_resources()
+    #     return self._response_model
     
-    @property
-    def response_tokenizer(self):
-        self.ensure_resources()
-        return self._response_tokenizer
+    # @property
+    # def response_tokenizer(self):
+    #     self.ensure_resources()
+    #     return self._response_tokenizer
     

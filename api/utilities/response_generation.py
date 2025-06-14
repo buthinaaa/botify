@@ -1,6 +1,8 @@
 import logging
 import time
 import traceback
+
+import copy
 from api.utilities.intent_recognition import detect_intent
 from api.utilities.message_processing import preprocess_message
 from api.utilities.ner import extract_ner_entities
@@ -8,6 +10,7 @@ from api.utilities.retrieval_system import hybrid_search
 from api.utilities.sentiment_analysis import analyze_sentiment, update_context_with_sentiment
 from api.services.nlp_manager import NLPManager
 from transformers import StoppingCriteria, StoppingCriteriaList
+import replicate
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -22,66 +25,60 @@ class StopOnTokens(StoppingCriteria):
                 return True
         return False
 
-def call_godel_api(prompt):
+def format_conversation_history(history_list):
+    """
+    Formats a conversation history list of dicts into LLaMA-3 chat-style prompt blocks.
+    Expects history like: [{'user': '...'}, {'bot': '...'}, ...]
+    """
+    formatted = []
+    for turn in history_list:
+        if 'user' in turn:
+            formatted.append(
+                "<|start_header_id|>user<|end_header_id|>\n\n"
+                f"{turn['user'].strip()}\n<|eot_id|>"
+            )
+        elif 'bot' in turn:
+            formatted.append(
+                "<|start_header_id|>assistant<|end_header_id|>\n\n"
+                f"{turn['bot'].strip()}\n<|eot_id|>"
+            )
+    return "\n".join(formatted)
+
+def call_godel_api(prompt, system_prompt):
     logger.warning("call_godel_api started")
     logger.debug(f"Prompt preview: {prompt[:200]}...")
     start_time = time.time()
-    
+
     try:
-        nlp_manager = NLPManager.get_instance()
-        nlp_manager.ensure_resources()
-        
-        model = nlp_manager.response_model
-        tokenizer = nlp_manager.response_tokenizer
-        logger.warning("Retrieved model and tokenizer from NLPManager")
-        
+        # Since the prompt is fully formed, we use the simplest passthrough template
+        input_data = {
+            "prompt": prompt,
+            "system_prompt": system_prompt,  # Still passed as required by some APIs
+            "max_new_tokens": 512,
+            "temperature": 0.4,
+            "top_p": 0.9,
+            "do_sample": True,
+            "prompt_template": "{prompt}"
+        }
 
-        # Ensure max length is within safe range
-        tokenizer.model_max_length = 1024
-        logger.debug("Set model max length to 1024")
+        print("---------------START SYSTEM PROMPT-----------------")
+        print(system_prompt)
+        print("---------------END SYSTEM PROMPT-----------------")
+        print("---------------START PROMPT-----------------")
+        print(prompt)
+        print("---------------END PROMPT-----------------")
 
-        # Tokenize with truncation
-        logger.warning("Tokenizing input prompt")
-        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=768).to(model.device)
-        # Define stop sequences for "User:" and "Assistant:"
-        stop_sequences = [
-            tokenizer("User:", add_special_tokens=False).input_ids,
-            tokenizer("Assistant:", add_special_tokens=False).input_ids,
-        ]
+        logger.warning("Sending request to Replicate API")
+        output = replicate.run("meta/meta-llama-3-8b-instruct", input=input_data)
 
-        stop_criteria = StoppingCriteriaList([StopOnTokens(stop_sequences)])
+        response = "".join(output)
+        logger.warning("Received response from Replicate")
+        logger.debug(f"Model response: {response[:300]}...")
 
-        # Generate response with tuned parameters
-        logger.warning("Starting response generation")
-        generation_start = time.time()
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=200,
-            do_sample=True,
-            temperature=0.7,
-            top_p=0.9,
-            top_k=50,
-            repetition_penalty=1.2,
-            no_repeat_ngram_size=3,
-            pad_token_id=tokenizer.eos_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-            stopping_criteria=stop_criteria
-        )
-        generation_end = time.time()
-        logger.warning(f"Response generation completed in {generation_end - generation_start:.3f}s")
-
-        # Decode and extract response
-        logger.warning("Decoding generated response")
-        full_output = tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
-
-        logger.warning(f"Raw response generated: '{full_output[:100]}...'")
-        logger.debug(f"Full raw response: {full_output}")
-        
         end_time = time.time()
         logger.warning(f"call_godel_api completed in {end_time - start_time:.3f}s")
-        return full_output
+        return response
 
-            
     except Exception as e:
         end_time = time.time()
         traceback.print_exc()
@@ -115,63 +112,72 @@ def build_godel_prompt(user_message, sentiment, ner_entities, conversation_histo
 
     # Prepare knowledge and entity info
     logger.warning("Preparing knowledge and entity information")
-    knowledge = prepare_knowledge(retrieved_chunks)
     entities = ", ".join(ner_entities) if ner_entities else None
-    logger.debug(f"Prepared knowledge: {knowledge}")
+    logger.debug(f"Prepared knowledge: {retrieved_chunks}")
     logger.debug(f"Entity string: {entities}")
 
-    system_setup = f"You are a helpful and professional assistant at {business_name}.\n"
-    user_prefix = "User:"
-    assistant_prefix = "Assistant:"
+    system_setup = f"""
+    You are a confident and professional customer service agent at {business_name}.
+    Speak as the company — never mention documents, internal files, or sources.
 
-    # Format user-only conversation history
-    logger.warning("Formatting conversation history")
-    history_blocks = []
-    if conversation_history:
-        for i, msg in enumerate(conversation_history):
-            msg = msg.strip()
-            if msg:
-                history_blocks.append(f"{user_prefix} {msg}")
-                logger.debug(f"History block {i+1}: '{msg[:50]}...'")
+    Always respond in first-person, as part of the business.
 
-    logger.warning(f"Created {len(history_blocks)} history blocks")
+    Keep answers short, clear, and direct. Do not over-explain or repeat.
+    Avoid lists unless necessary. If used, keep them brief.
+
+    Never say things like "Based on the document..." or "It mentions...".
+    You are the company — answer with full authority.
+    """
+    formatted_history = format_conversation_history(conversation_history[:-1])
+
+    # Inject into system prompt to guide the assistant's thinking
+    system_setup += f"""
+
+    The following is the prior chat history between the user and assistant.
+    Use it to help answer the next message, but never refer to it explicitly.
+
+    {formatted_history}
+    """
+    print("---------------START HISTORY-----------------")
+    print(conversation_history)
+    print("---------------END HISTORY-----------------")
 
     # Compose current user turn based on intent
     logger.warning(f"Composing user block for intent: {primary_intent}")
     if primary_intent == "support-question":
-        user_block = f"{user_prefix} I need help with the following question. My sentiment is {sentiment}."
+        user_block = f"I need help with the following question. My sentiment is {sentiment}."
         if entities:
             user_block += f" This involves: {entities}."
         if retrieved_chunks:
-            user_block += f"\nHere is some background info:\n{knowledge}"
+            user_block += f"\nHere is some background info:\n{retrieved_chunks} (YOUR ANSWER HAVE TO BE BASED ON THIS INFO ONLY)"
         user_block += f"\n\n{user_message.strip()}"
         logger.warning("Built support-question user block")
 
     elif primary_intent == "support":
-        user_block = f"{user_prefix} I'm facing a technical issue. Tone: {sentiment}."
+        user_block = f"I'm facing a technical issue. Tone: {sentiment}."
         if entities:
             user_block += f" Related to: {entities}."
         if retrieved_chunks:
-            user_block += f"\nHere are some details:\n{knowledge}"
+            user_block += f"\nHere are some details:\n{retrieved_chunks} (YOUR ANSWER HAVE TO BE BASED ON THIS INFO ONLY)"
         user_block += f"\n\n{user_message.strip()}"
         logger.warning("Built support user block")
 
     elif primary_intent == "complaint":
-        user_block = f"{user_prefix} I have a complaint. The tone is {sentiment}."
+        user_block = f"I have a complaint. The tone is {sentiment}."
         if entities:
             user_block += f" It relates to: {entities}."
         user_block += f"\n\n{user_message.strip()}"
         logger.warning("Built complaint user block")
 
     elif primary_intent == "appreciation":
-        user_block = f"{user_prefix} I just wanted to say thank you! My message is {sentiment} in tone."
+        user_block = f"I just wanted to say thank you! My message is {sentiment} in tone."
         if entities:
             user_block += f" Specific areas: {entities}."
         user_block += f"\n\n{user_message.strip()}"
         logger.warning("Built appreciation user block")
 
     elif primary_intent == "greeting":
-        user_block = f"{user_prefix} Hi! Just wanted to say hello. Tone: {sentiment}.\n\n{user_message.strip()}"
+        user_block = f"Hi! Just wanted to say hello. Tone: {sentiment}.\n\n{user_message.strip()}"
         logger.warning("Built greeting user block")
 
     else:
@@ -180,13 +186,18 @@ def build_godel_prompt(user_message, sentiment, ner_entities, conversation_histo
 
     # Final prompt
     logger.warning("Building final prompt")
-    prompt_parts = [system_setup] + history_blocks + [user_block, f"{assistant_prefix}"]
-    final_prompt = "\n".join(prompt_parts)
+    formatted_history = format_conversation_history(conversation_history[:-1])
+
+    final_prompt = (
+        f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system_setup.strip()}"
+        f"<|start_header_id|>user<|end_header_id|>\n\n{user_block.strip()}<|eot_id|>"
+        f"<|start_header_id|>assistant<|end_header_id|>\n\n"
+    )
     
     end_time = time.time()
     logger.warning(f"build_godel_prompt completed in {end_time - start_time:.3f}s")
     logger.debug(f"Final prompt preview: {final_prompt[:300]}...")
-    return final_prompt
+    return final_prompt, system_setup
 
 
 def assess_response_quality(response, retrieved_chunks, user_message):
@@ -312,7 +323,7 @@ def generate_response(user_id, user_message, sentiment, ner_entities, conversati
     # Build the prompt for the model
     logger.warning("Building prompt for model")
     prompt_start = time.time()
-    prompt = build_godel_prompt(
+    prompt, system_prompt = build_godel_prompt(
         user_message=user_message,
         sentiment=sentiment,
         ner_entities=ner_entities,
@@ -327,7 +338,7 @@ def generate_response(user_id, user_message, sentiment, ner_entities, conversati
     # Get raw model response
     logger.warning("Getting raw model response")
     api_start = time.time()
-    raw_response = call_godel_api(prompt)
+    raw_response = call_godel_api(prompt, system_prompt)
     api_end = time.time()
     logger.warning(f"Model API call completed in {api_end - api_start:.3f}s")
 
@@ -474,7 +485,7 @@ def prepare_knowledge(chunks):
     if not chunks:
         return "No verified knowledge available - politely ask for more details"
     unique_chunks = list(dict.fromkeys(chunk.strip() for chunk in chunks if chunk.strip()))
-    MAX_CHUNK_LEN = 150  # characters, or count tokens using a tokenizer
+    MAX_CHUNK_LEN = 2000  # characters, or count tokens using a tokenizer
 
     clipped_chunks = [chunk[:MAX_CHUNK_LEN] for chunk in unique_chunks[:3]]
     return "\n- " + "\n- ".join(clipped_chunks)
@@ -501,7 +512,7 @@ def chatbot_response(user_message, conversation_context=None, document_data=None
     if conversation_context is None:
         conversation_context = []
         logger.warning("Initialized empty conversation context")
-
+    previous_messages = copy.deepcopy(conversation_context)
     # Initialize document data if not provided
     if document_data is None:
         document_data = {
@@ -537,7 +548,6 @@ def chatbot_response(user_message, conversation_context=None, document_data=None
     sentiment_end = time.time()
     logger.warning(f"Sentiment analysis completed in {sentiment_end - sentiment_start:.3f}s")
     logger.warning(f"Sentiment: {sentiment_label} (score: {sentiment_score:.3f})")
-
     # Step 3: Extract named entities
     logger.warning("STEP 3: Extracting named entities")
     ner_start = time.time()
@@ -546,6 +556,7 @@ def chatbot_response(user_message, conversation_context=None, document_data=None
     ner_end = time.time()
     logger.warning(f"NER extraction completed in {ner_end - ner_start:.3f}s")
     logger.warning(f"Extracted {len(ner_entities)} entities: {entity_words}")
+
 
     # Step 4: Detect intent
     logger.warning("STEP 4: Detecting intent")
@@ -608,19 +619,6 @@ def chatbot_response(user_message, conversation_context=None, document_data=None
     else:
         logger.warning("Not a question, skipping document retrieval")
 
-    # Step 7: Format conversation history for the response generator
-    logger.warning("STEP 7: Formatting conversation history")
-    history_formatted = []
-    seen = set()
-    for entry in conversation_context[-3:]:  # Use last 3 entries
-        if "user" in entry:
-            msg = entry["user"].strip()
-            if msg and msg not in seen:
-                history_formatted.append(msg)
-                seen.add(msg)
-    
-    logger.warning(f"Formatted {len(history_formatted)} unique history entries")
-
     # Step 8: Generate response
     logger.warning("STEP 8: Generating response")
     response_start = time.time()
@@ -629,7 +627,7 @@ def chatbot_response(user_message, conversation_context=None, document_data=None
         user_message=preprocessed_message["original"],
         sentiment=sentiment_label,
         ner_entities=entity_words,
-        conversation_history=history_formatted,
+        conversation_history=previous_messages,
         retrieved_chunks=retrieved_chunks,
         intent_label=intent_result['matched_labels'],
         business_name=business_name
@@ -637,7 +635,6 @@ def chatbot_response(user_message, conversation_context=None, document_data=None
     response_end = time.time()
     logger.warning(f"Response generation completed in {response_end - response_start:.3f}s")
     logger.warning(f"Response status: {response.get('status')}")
-
     # Step 9: Update context with bot response
     logger.warning("STEP 9: Updating context with bot response")
     conversation_context.append({"bot": response['text']})

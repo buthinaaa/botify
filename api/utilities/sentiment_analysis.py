@@ -157,7 +157,7 @@ def get_overall_sentiment(context, window=10):
     
     return counts
 
-def check_for_fallback(context, overall_counts=None, window=10, min_messages=5, threshold=0.7, trend_window=5, trend_threshold=0.6) -> bool:
+def check_for_fallback(context, overall_counts=None, window=10, min_messages=5, threshold=0.3, trend_window=5, trend_threshold=0.3) -> bool:
     """
     Trigger fallback only if:
     - Total negative sentiment in last `window` exceeds `threshold`

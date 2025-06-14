@@ -1,4 +1,5 @@
 import pickle
+import re
 import tempfile
 import numpy as np
 import logging
@@ -164,8 +165,14 @@ class GenerateResponse(APIView):
                 previous_messages = Message.objects.filter(
                     chatbot=chatbot,
                     session=user_message.session
-                ).values('sentiment').order_by('-timestamp')[:10]
-                previous_messages = list(previous_messages)
+                ).values('sender', 'sentiment', 'original_text').order_by('-timestamp')[:10]
+                previous_messages = [
+                    {
+                        'sentiment': msg['sentiment'],
+                        msg['sender']: msg['original_text']
+                    }
+                    for msg in previous_messages
+                ]
                 if check_for_fallback(previous_messages):
                     try:
                         session_id = user_message.session_id
@@ -193,6 +200,7 @@ class GenerateResponse(APIView):
                 document_data_end = time.time()
                 chatbot_start_time = time.time()
                 chatbot_session = ChatSession.objects.filter(id=session_id).first() if session_id else None
+                logger.warning(f"[Request {request_id}] PRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCPRINTING DOCDocument Data: {document_data}")
                 if not chatbot_session or not chatbot_session.is_intervened:
                     try:
                         chatbot_result = chatbot_response(
@@ -206,6 +214,12 @@ class GenerateResponse(APIView):
                         
                         # Extract the bot response text
                         bot_response_text = chatbot_result['response']['text']
+                        bot_response_text = re.split(
+                            r'\buser\w*\b(?:\s*\([^)]*\))?(?:\s*[:]|(?:\s+\w+))',
+                            bot_response_text,
+                            flags=re.IGNORECASE
+                        )[0]
+                        bot_response_text = re.sub(r'\s*\([^)]*\)', '', bot_response_text)
                         logger.warning(f"[Request {request_id}] Bot response: '{bot_response_text[:100]}...'")
                         logger.warning(f"[Request {request_id}] Response debug info: {chatbot_result.get('debug_info', {})}")
                         
