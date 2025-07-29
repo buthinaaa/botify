@@ -9,7 +9,7 @@ My contributions focused specifically on:
 - Quantizing models for efficient local deployment
 - Creating fallback detection and alert logic for real-time handoff to human agents
 
-See full breakdown of my work [here](#my-contributions-ai--nlp-pipeline).
+See the "**My Contributions (AI / NLP Pipeline)**" section below for full details.
 
 
 # Botify - Dockerized Django Project
