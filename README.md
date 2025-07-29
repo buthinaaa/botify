@@ -9,7 +9,7 @@ My contributions focused specifically on:
 - Quantizing models for efficient local deployment
 - Creating fallback detection and alert logic for real-time handoff to human agents
 
-See the "**My Contributions (AI / NLP Pipeline)**" section below for full details.
+See full breakdown of my work [here](#my-contributions--ai-and-nlp-pipeline).
 
 
 # Botify - Dockerized Django Project
@@ -150,7 +150,7 @@ For production deployment, you should:
 
 ---
 
-## 👤 My Contributions (AI / NLP Pipeline)
+## My Contributions – AI and NLP Pipeline
 
 I led the development of the full AI module that powers Botify’s understanding and generation capabilities, including:
 
