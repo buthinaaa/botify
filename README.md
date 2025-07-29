@@ -1,5 +1,3 @@
----
-
 > 🧠 **Note from Buthaina Esam – Personal Fork**
 
 This personal fork showcases the AI and NLP components that I developed for our graduation project **Botify**, a no-code chatbot builder.
@@ -12,9 +10,6 @@ My contributions focused specifically on:
 - Creating fallback detection and alert logic for real-time handoff to human agents
 
 See full breakdown of my work [here](#my-contributions-ai--nlp-pipeline).
-
----
-
 
 
 # Botify - Dockerized Django Project
