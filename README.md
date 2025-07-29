@@ -1,3 +1,22 @@
+---
+
+> 🧠 **Note from Buthaina Esam – Personal Fork**
+
+This personal fork showcases the AI and NLP components that I developed for our graduation project **Botify**, a no-code chatbot builder.
+
+My contributions focused specifically on:
+- Designing and implementing the multi-model NLP pipeline (sentiment, intent, NER, response generation)
+- Developing the hybrid retrieval system (BM25 + FAISS + KeyBERT)
+- Building the document preprocessing and embedding pipeline
+- Quantizing models for efficient local deployment
+- Creating fallback detection and alert logic for real-time handoff to human agents
+
+See full breakdown of my work [here](#my-contributions-ai--nlp-pipeline).
+
+---
+
+
+
 # Botify - Dockerized Django Project
 
 This project is a Django application that uses PostgreSQL with pgvector extension for vector similarity search capabilities.
@@ -133,3 +152,79 @@ For production deployment, you should:
 3. Configure proper security settings
 4. Set up proper static file serving
 5. Use a production-grade database backup strategy
+
+---
+
+## 👤 My Contributions (AI / NLP Pipeline)
+
+I led the development of the full AI module that powers Botify’s understanding and generation capabilities, including:
+
+---
+
+### 🤖 Multi-Model NLP Pipeline
+
+Botify uses a modular NLP pipeline to process and respond to user input:
+
+#### 🟣 Sentiment Analysis  
+- **Model**: `cardiffnlp/twitter-roberta-base-sentiment-latest`  
+- Detects emotional tone in messages (positive / neutral / negative)  
+- Triggers fallback in case of negative sentiment
+
+#### 🟢 Intent Recognition  
+- **Model**: `facebook/bart-large-mnli`  
+- Classifies message type (support, complaint, greeting, etc.)  
+- Routes messages to generation or retrieval flow
+
+#### 🔵 Named Entity Recognition (NER)  
+- **Model**: `dslim/bert-base-NER-uncased`  
+- Extracts key entities (product names, dates, locations, etc.)  
+- Enables contextual understanding and chunk tagging
+
+#### 🔴 Response Generation  
+- **Model**: `TinyLLaMA-1.1B-Chat` (quantized)  
+- Generates fluent fallback answers when retrieval is insufficient  
+- Integrated with prompt templating based on retrieved chunks
+
+---
+
+### 🔍 Hybrid Retrieval System
+
+Designed a hybrid search engine that combines:
+
+- **BM25** for keyword relevance  
+- **FAISS** with MiniLM embeddings for semantic similarity  
+- **KeyBERT** for keyword-enhanced filtering
+
+This ranks document chunks to guide the chatbot’s responses.
+
+---
+
+### 🧾 Document Preprocessing Pipeline
+
+- Extracted and cleaned text from PDF, DOCX, TXT  
+- Applied semantic-aware chunking with overlap and token limits  
+- Used `spaCy` and `NLTK` for lemmatization and tokenization  
+- Generated embeddings and intent labels for fast retrieval
+
+---
+
+### 🧠 Quantization & Performance Optimization
+
+- Quantized large models to **INT8** using ONNX  
+- Reduced model size and RAM usage for CPU-based servers  
+- Improved local response time and deployability
+
+---
+
+### ⚠️ Fallback Logic & Admin Alerts
+
+Implemented fallback detection based on:
+
+- Repetitive answers  
+- Negative sentiment  
+- Missing entities / low confidence  
+- Generic “I don’t know” responses  
+
+Triggered **real-time admin alerts via WebSocket** to enable human takeover.
+
+---
